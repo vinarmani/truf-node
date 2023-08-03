@@ -25,17 +25,6 @@ func (p *Procedure) evaluate(ctx *executionContext, eng *Engine, ins []*Instruct
 }
 
 func (a *Procedure) checkAccessControl(opts *executionContext) error {
-	if a.Scoping == ProcedureScopingPublic {
-		return nil
-	}
-
-	if opts == nil {
-		return fmt.Errorf("failed to execute private action '%s': could not authenticate caller", a.Name)
-	}
-
-	if opts.action == a.Name {
-		return fmt.Errorf("%w: private action '%s' cannot be invoked directly", ErrScopingViolation, a.Name)
-	}
 
 	return nil
 }

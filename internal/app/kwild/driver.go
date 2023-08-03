@@ -28,6 +28,7 @@ type KwildDriver struct {
 }
 
 func NewKwildDriver(clt *client.Client, pk *ecdsa.PrivateKey, gatewayAddr string, logger log.Logger) *KwildDriver {
+
 	return &KwildDriver{
 		clt:         clt,
 		pk:          pk,

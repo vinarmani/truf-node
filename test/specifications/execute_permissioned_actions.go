@@ -17,7 +17,7 @@ const (
 	listUsersQueryName  = "list_users"
 )
 
-// TODO: we can delete this since the meaning of private has changed.
+// ! re-adding this to test for the old private scoping functionality
 // we should instead test nested private actions
 // this should probably be replaced with testing some sort of gating mechanism using seed data
 func ExecutePermissionedActionSpecification(ctx context.Context, t *testing.T, execute ExecuteQueryDsl) {
@@ -42,7 +42,6 @@ func ExecutePermissionedActionSpecification(ctx context.Context, t *testing.T, e
 	_, _, err = execute.ExecuteAction(ctx, dbID, listUsersQueryName, nil)
 	assert.Error(t, err)
 
-	// adhoc query should fail
 	_, err = execute.QueryDatabase(ctx, dbID, "SELECT * FROM users")
 	assert.NoError(t, err)
 }

@@ -92,6 +92,13 @@ func (d *Dataset) Execute(ctx context.Context, action string, args []map[string]
 		return nil, fmt.Errorf("procedure %s does not exist", action)
 	}
 
+	// ! this is a hack to enforce the old private scoping
+	if !proc.Public {
+		if !strings.EqualFold(opts.Caller, d.owner) {
+			return nil, fmt.Errorf("cannot execute private procedure %s as non-owner", action)
+		}
+	}
+
 	savepoint, err := d.db.Savepoint()
 	if err != nil {
 		return nil, err

@@ -279,6 +279,7 @@ func TestEngine_ExecuteProcedure(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			// ! Due to the hack to enable the old scoping functionality, this should now be passing
 			name: "executing a private procedure directly should fail",
 			fields: fields{
 				availableExtensions: testExtensions,
@@ -293,7 +294,7 @@ func TestEngine_ExecuteProcedure(t *testing.T) {
 				opts: testExecutionOpts,
 			},
 			want:    nil,
-			wantErr: execution.ErrScopingViolation,
+			wantErr: nil,
 		},
 		{
 			name: "executing a private procedure indirectly should succeed",

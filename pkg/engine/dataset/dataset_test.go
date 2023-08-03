@@ -20,6 +20,7 @@ func Test_Execute(t *testing.T) {
 		extensionInitialization []*types.Extension
 		tables                  []*types.Table
 		procedures              []*types.Procedure
+		caller                  string
 	}
 
 	defaultFields := fields{
@@ -27,6 +28,7 @@ func Test_Execute(t *testing.T) {
 		extensionInitialization: testExtensions,
 		tables:                  test_tables,
 		procedures:              test_procedures,
+		caller:                  callerAddress,
 	}
 	_ = defaultFields
 
@@ -69,6 +71,38 @@ func Test_Execute(t *testing.T) {
 			},
 			expectedOutputs: nil,
 			wantErr:         false,
+		},
+		// ! testing old private scoping functionality
+		{
+			name: "execute a private procedure as non owner, should fail",
+			fields: fields{
+				availableExtensions:     testAvailableExtensions,
+				extensionInitialization: testExtensions,
+				tables:                  test_tables,
+				procedures: []*types.Procedure{
+					{
+						Name:   "create_user",
+						Args:   []string{"$id", "$username", "$age"},
+						Public: false,
+						Statements: []string{
+							"INSERT INTO users (id, username, age, address) VALUES ($id, $username, $age, @caller);",
+						},
+					},
+				},
+				caller: "0x123",
+			},
+			args: args{
+				procedure: "create_user",
+				inputs: []map[string]interface{}{
+					{
+						"$id":       "1",
+						"$username": "test_username",
+						"$age":      20,
+					},
+				},
+			},
+			expectedOutputs: nil,
+			wantErr:         true,
 		},
 		{
 			name:   "violate foreign key constraint",
@@ -131,6 +165,7 @@ func Test_Execute(t *testing.T) {
 						},
 					},
 				},
+				caller: callerAddress,
 			},
 			args: args{
 				procedure: "create_user_manual",
@@ -173,6 +208,7 @@ func Test_Execute(t *testing.T) {
 						},
 					},
 				},
+				caller: callerAddress,
 			},
 			args: args{
 				procedure: "create_user_manual",
@@ -222,6 +258,7 @@ func Test_Execute(t *testing.T) {
 						},
 					},
 				},
+				caller: callerAddress,
 			},
 			args: args{
 				procedure: "use_ext",
@@ -256,6 +293,7 @@ func Test_Execute(t *testing.T) {
 						},
 					},
 				},
+				caller: callerAddress,
 			},
 			args: args{
 				procedure: "use_ext",
@@ -310,7 +348,7 @@ func Test_Execute(t *testing.T) {
 			}()
 
 			outputs, err := ds.Execute(ctx, tt.args.procedure, tt.args.inputs, &dataset.TxOpts{
-				Caller: callerAddress,
+				Caller: tt.fields.caller,
 			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Dataset.Execute() error = %v, wantErr %v", err, tt.wantErr)
