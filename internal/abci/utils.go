@@ -2,7 +2,6 @@ package abci
 
 import (
 	"encoding/json"
-
 	"github.com/kwilteam/kwil-db/core/types/transactions"
 	"github.com/kwilteam/kwil-db/internal/abci/snapshots"
 
