@@ -50,7 +50,7 @@ docker build -t tsn-db:latest . -f ./truflation/docker/tsn.dockerfile
 To run the Docker image, use the following command:
 
 ```shell
-docker run -p 8080:8080 tsn-db:latest
+docker run --name tsn-db -p 8080:8080 tsn-db:latest
 ```
 
 ## Resetting local deployments
