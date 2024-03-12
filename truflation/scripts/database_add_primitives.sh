@@ -32,7 +32,7 @@ while [[ $retries -lt $max_retries ]]; do
     output=$(../../.build/kwil-cli database batch --path "$file" --action add_record --name=$db_name --values created_at:$(date +%s))
     echo "Output: $output"
     # if output contains error, add to pending_files
-    if [[ $output == *"error"* ]]; then
+    if [[ $output == "error"* ]]; then
       echo "Error processing file: $file"
       pending_files+=("$file")
     fi
