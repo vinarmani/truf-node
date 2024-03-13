@@ -2,6 +2,7 @@
 .build/
 .github/
 .vscode/
+.idea/
 .wal/
 build/package/docker/
 .gitattributes
@@ -23,3 +24,7 @@ cmd/kwil-cli/kwil-cli
 **/_*
 **/.testnet
 truflation/infra
+
+*.md
+truflation/composed_streams.csv
+truflation/scripts/temp_*/**/*
