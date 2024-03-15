@@ -2,7 +2,8 @@ package whitelist
 
 import (
 	"fmt"
-	"github.com/kwilteam/kwil-db/internal/engine/execution"
+	"github.com/kwilteam/kwil-db/common"
+	"github.com/kwilteam/kwil-db/extensions/precompiles"
 	"strings"
 )
 
@@ -19,7 +20,7 @@ func checkWalletFormat(wallet string) error {
 //	metadata: {
 //	  "whitelist_wallets"?: "0x1234,0x5678,0x9abc" // comma separated list of wallet addresses
 //	}
-func InitializeExtension(ctx *execution.DeploymentContext, metadata map[string]string) (execution.ExtensionNamespace, error) {
+func InitializeExtension(ctx *precompiles.DeploymentContext, metadata map[string]string) (precompiles.Instance, error) {
 	extension_name := "whitelist"
 	if len(metadata) > 1 {
 		return nil, fmt.Errorf("extension %s has too many arguments used", extension_name)
@@ -56,13 +57,11 @@ func InitializeExtension(ctx *execution.DeploymentContext, metadata map[string]s
 	}, nil
 }
 
-var _ = execution.ExtensionInitializer(InitializeExtension)
-
 type WhitelistExt struct {
 	whitelistedWallets [][]byte
 }
 
-func (w *WhitelistExt) Call(scoper *execution.ProcedureContext, method string, inputs []interface{}) ([]interface{}, error) {
+func (w *WhitelistExt) Call(scoper *precompiles.ProcedureContext, app *common.App, method string, inputs []interface{}) ([]interface{}, error) {
 	switch method {
 	// usage example: use whitelist as w; w.check("0x1234")
 	case "check":

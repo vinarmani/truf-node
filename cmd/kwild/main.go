@@ -9,6 +9,7 @@ import (
 	"github.com/truflation/tsn-db/internal/extensions/ed25519authenticator"
 	"github.com/truflation/tsn-db/internal/extensions/mathutil"
 	"github.com/truflation/tsn-db/internal/extensions/stream"
+	"github.com/truflation/tsn-db/internal/extensions/whitelist"
 	"os"
 
 	"github.com/kwilteam/kwil-db/cmd/kwild/root"
@@ -44,6 +45,11 @@ func init() {
 	}
 
 	err = precompiles.RegisterPrecompile("basestream", basestream.InitializeBasestream)
+	if err != nil {
+		panic(err)
+	}
+
+	err = precompiles.RegisterPrecompile("whitelist", whitelist.InitializeExtension)
 	if err != nil {
 		panic(err)
 	}
