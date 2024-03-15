@@ -17,7 +17,7 @@ RUN mkdir -p /var/run/kwil
 RUN chmod 777 /var/run/kwil
 RUN apk update && apk add git ca-certificates-bundle
 
-COPY . .
+COPY ../truflation/docker .
 RUN test -f go.work && rm go.work || true
 
 RUN GOWORK=off GIT_VERSION=$version GIT_COMMIT=$git_commit BUILD_TIME=$build_time CGO_ENABLED=0 TARGET="/app/.build" GO_BUILDTAGS=$go_build_tags ./scripts/build/binary kwild

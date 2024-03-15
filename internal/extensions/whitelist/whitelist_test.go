@@ -1,16 +1,18 @@
 package whitelist
 
 import (
+	"encoding/hex"
 	"github.com/kwilteam/kwil-db/internal/engine/execution"
 	"github.com/kwilteam/kwil-db/internal/engine/types"
 	"reflect"
+	"sort"
 	"testing"
 )
 
 func TestWhitelistExt_check(t *testing.T) {
 	tests := []struct {
 		name       string
-		whitelists [][]byte
+		whitelists []string
 		inputs     []interface{}
 		want       []interface{}
 		wantErr    bool
@@ -18,10 +20,10 @@ func TestWhitelistExt_check(t *testing.T) {
 	}{
 		{
 			name: "HappyPath",
-			whitelists: [][]byte{
-				[]byte("wallet1"),
-				[]byte("wallet2"),
-				[]byte("wallet3"),
+			whitelists: []string{
+				"wallet1",
+				"wallet2",
+				"wallet3",
 			},
 			inputs: []interface{}{
 				"wallet2",
@@ -33,10 +35,10 @@ func TestWhitelistExt_check(t *testing.T) {
 		},
 		{
 			name: "MultipleInputs",
-			whitelists: [][]byte{
-				[]byte("wallet1"),
-				[]byte("wallet2"),
-				[]byte("wallet3"),
+			whitelists: []string{
+				"wallet1",
+				"wallet2",
+				"wallet3",
 			},
 			inputs: []interface{}{
 				"wallet2",
@@ -47,10 +49,10 @@ func TestWhitelistExt_check(t *testing.T) {
 		},
 		{
 			name: "NonStringInput",
-			whitelists: [][]byte{
-				[]byte("wallet1"),
-				[]byte("wallet2"),
-				[]byte("wallet3"),
+			whitelists: []string{
+				"wallet1",
+				"wallet2",
+				"wallet3",
 			},
 			inputs: []interface{}{
 				123,
@@ -60,10 +62,10 @@ func TestWhitelistExt_check(t *testing.T) {
 		},
 		{
 			name: "WalletNotWhitelisted",
-			whitelists: [][]byte{
-				[]byte("wallet1"),
-				[]byte("wallet2"),
-				[]byte("wallet3"),
+			whitelists: []string{
+				"wallet1",
+				"wallet2",
+				"wallet3",
 			},
 			inputs: []interface{}{
 				"wallet5",
@@ -104,12 +106,17 @@ func TestWhitelistExt_check(t *testing.T) {
 }
 
 func TestInitializeExtension(t *testing.T) {
-	ownerAddress := "0x00000000000000000000000000000000000owner"
-	validAddress := "0x00000000000000000000000000000000000valid"
-	validAddress2 := "0x0000000000000000000000000000000000valid2"
+	ownerAddress := "0x0000000000000000000000000000000000000001"
+	validAddress := "0x0000000000000000000000000000000000000011"
+	validAddress2 := "0x0000000000000000000000000000000000000111"
+
+	byteOwner, err := hex.DecodeString(ownerAddress[2:])
+	if err != nil {
+		t.Fatalf("Error decoding owner address %v", err)
+	}
 
 	invalidAddress := "notgood"
-	var ctx = &execution.DeploymentContext{Schema: &types.Schema{Owner: []byte(ownerAddress)}}
+	var ctx = &execution.DeploymentContext{Schema: &types.Schema{Owner: byteOwner}}
 
 	tests := []struct {
 		name            string
@@ -157,11 +164,12 @@ func TestInitializeExtension(t *testing.T) {
 			}
 
 			if err == nil {
-				actualWalletsByte := ext.(*WhitelistExt).whitelistedWallets
-				actualWallets := make([]string, len(actualWalletsByte))
-				for i, wallet := range actualWalletsByte {
-					actualWallets[i] = string(wallet)
-				}
+				actualWallets := ext.(*WhitelistExt).whitelistedWallets
+
+				// order is not important
+				sort.Strings(actualWallets)
+				sort.Strings(tt.expectedWallets)
+
 				if !reflect.DeepEqual(actualWallets, tt.expectedWallets) {
 					t.Errorf("Expected wallets %v, but got %v", tt.expectedWallets, actualWallets)
 				}
