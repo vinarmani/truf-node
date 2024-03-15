@@ -14,16 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }} # only run on non-draft PRs
     steps:
+      # Clear cache to avoid no space left on device
       - name: Clear cache
         if: ${{ !env.ACT }} # skip during local actions testing
         run: |
-          echo "hello"
-#    if: ${{ !github.event.pull_request.draft }} # only run on non-draft PRs
-#    steps:
-#      # Clear cache to avoid no space left on device
-#      - name: Clear cache
-#        if: ${{ !env.ACT }} # skip during local actions testing
-#        run: |
+          echo "hello
 #          sudo rm -rf /usr/share/dotnet
 #          sudo rm -rf /opt/ghc
 #          sudo rm -rf "/usr/local/share/boost"
@@ -61,6 +56,15 @@ jobs:
 #          task install:deps
 #          go mod download
 #
+#      - name: Lint
+#        uses: golangci/golangci-lint-action@v4
+#        with:
+#          skip-pkg-cache: true
+#
+#      - name: Run Go Tests
+#        run: |
+#          task test:unit
+#
 #      - name: Generate go vendor
 #        #for faster builds and private repos, need to run this after pb:compile:v1
 #        run: |
@@ -89,6 +93,8 @@ jobs:
 #            git_commit=${{ github.sha }}
 #            version=${{ steps.config.outputs.version }}
 #            build_time=${{ github.event.release.created_at }}
+#            # hardcoded for testing reasons
+#            whitelist_wallets=0x304e893AdB2Ad8E8C37F4884Ad1EC3df8bA9bDcf
 #          file: ./truflation/docker/tsn.dockerfile
 #          cache-from: type=local,src=/tmp/.buildx-cache-tsn-db
 #          cache-to: type=local,dest=/tmp/.buildx-cache-tsn-db-new
@@ -126,17 +132,4 @@ jobs:
 #          # PS: multiline command with \ isn't working here
 #          timeout 300 docker logs $docker_id -f | grep  -m1 -oP '"Health check state changed","state":"up"' || { ec=$?; [ $ec -eq 141 ] && true || (exit $ec); }
 #
-#          PRIVATE_KEY="0000000000000000000000000000000000000000000000000000000000000001" # any wallet, just to use it
-#          PROVIDER="http://127.0.0.1:8080"
-#
-#          output=$(.build/kwil-cli database call -a=get_index date:"2023-01-01" date_to:"2023-12-31" --kwil-provider=$PROVIDER --private-key=$PRIVATE_KEY -o=7e5f4552091a69125d5dfcb7b8c2659029395bdf -n=cpi)
-#          if [[ $output == *"2023-12-01"* ]]; then
-#            echo "Success: Command output contains expected text."
-#          else
-#            echo "Command output did not contain expected text. Output:"
-#            echo $output
-#
-#            echo "Server log:"
-#            docker logs $docker_id
-#            exit 1
-#          fi
+#                    ./truflation/scripts/ci-tests.sh || (echo "Command failed, printing logs:" && docker logs $docker_id && exit 1)

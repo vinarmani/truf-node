@@ -91,7 +91,14 @@ if [ "$skip_drop" = false ]; then
     sleep 10
 fi
 
+# This controls which wallets have access to the deployed databases
+allowed_wallets=$WHITELIST_WALLETS
+echo "Using allowed wallets: $allowed_wallets"
 
+# we define here so we avoid running the command many times. One schema fits all
+transformed_base_schema=$(exec ./use_base_schema.sh "$allowed_wallets")
+
+echo -e "Using transformed base schema: \n$transformed_base_schema"
 
 function deploy_primitives {
   echo "Deploying primitive schemas"
@@ -108,12 +115,12 @@ function deploy_primitives {
       filename="${filename%.*}"
       echo "Deploying $filename"
       while true; do
-          output=$(../../.build/kwil-cli database deploy -p=../base_schema/base_schema.kf --name="$filename" 2>&1 || true)
+          output=$(../../.build/kwil-cli database deploy -p=<(echo "$transformed_base_schema") --name="$filename" 2>&1 || true)
           echo $output
           if [[ $output =~ "invalid nonce" ]]; then
             echo "Error nonce, retrying file immediately: $file"
             expected_nonce=$(echo $output | grep -oP 'expected \K[0-9]+')
-            ../../.build/kwil-cli database deploy -p=../base_schema/base_schema.kf --name="$filename" --nonce $expected_nonce
+            ../../.build/kwil-cli database deploy -p=<(echo "$transformed_base_schema") --name="$filename" --nonce $expected_nonce
           elif [[ $output =~ "error" ]]; then
             echo "Error deploying file: $file"
           else
