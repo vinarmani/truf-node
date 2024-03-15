@@ -2,11 +2,15 @@ FROM golang:alpine AS build
 
 # required for scripts
 RUN apk add --no-cache bash uuidgen python3~3.11 py3-pip~23 py3-pandas~2
+# required for -P option, otherwise some scripts may fail
+RUN apk add --upgrade grep
 
 ARG version
 ARG build_time
 ARG git_commit
 ARG go_build_tags
+# a comma separated list of wallet addresses that are allowed to query the node
+ARG whitelist_wallets
 
 WORKDIR /app
 RUN mkdir -p /var/run/kwil
@@ -23,6 +27,8 @@ RUN chmod +x /app/.build/kwild /app/.build/kwil-admin /app/.build/kwil-cli
 
 # owner public address for this PK is 7e5f4552091a69125d5dfcb7b8c2659029395bdf
 ENV PRIVATE_KEY="0000000000000000000000000000000000000000000000000000000000000001"
+
+ENV WHITELIST_WALLETS=$whitelist_wallets
 
 RUN /app/truflation/scripts/setup.sh
 
