@@ -1,5 +1,6 @@
 .git
 .build
+.env
 
 scripts/secret_db_credentials.json
 scripts/temp_csv
