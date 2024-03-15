@@ -21,7 +21,7 @@ func checkWalletFormat(wallet string) error {
 //	metadata: {
 //	  "whitelist_wallets"?: "0x1234,0x5678,0x9abc" // comma separated list of wallet addresses
 //	}
-func InitializeExtension(ctx *precompiles.DeploymentContext, metadata map[string]string) (precompiles.Instance, error) {
+func InitializeExtension(ctx *precompiles.DeploymentContext, service *common.Service, metadata map[string]string) (precompiles.Instance, error) {
 	extension_name := "whitelist"
 	if len(metadata) > 1 {
 		return nil, fmt.Errorf("extension %s has too many arguments used", extension_name)
