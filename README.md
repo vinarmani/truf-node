@@ -13,23 +13,30 @@ Learn more about Kwil at [kwil.com](https://kwil.com).
 To build Kwil, you will need to install:
 
 1. [Go](https://golang.org/doc/install)
-2. [Protocol Buffers](https://protobuf.dev/downloads/) (optional), with the `protoc` executable binary on your `PATH`.
-3. [Taskfile](https://taskfile.dev/installation)
-4. Protocol buffers go plugins and other command line tools. The `tool` task will install the required versions of the tools into your `GOPATH`, so be sure to include `GOPATH/bin` on your `PATH`.
-
-    ```shell
-    task tools
-    ```
+2. [Taskfile](https://taskfile.dev/installation)
 
 ### Build
 
-Invoke `task` command to see all available tasks. The `build` task will compile `kwild`, `kwil-cli`, and `kwil-admin`. They will be generated in `.build/`:
+Invoke `task` command to see all available tasks. The `build` task will compile `kwild`. They will be generated in `.build/`:
 
 ```shell
 task build
 ```
 
 ## Local deployment
+
+### Run Postgres
+
+Before running the custom kwild binary, you will have to start Postgres.
+The Kwil team has provided a default image with the necessary configurations. 
+For more information on how to configure your own Postgres database, please refer to the [Postgres setup guide](https://docs.kwil.com/docs/daemon/installation#postgresql).
+
+```
+docker run -d -p 5432:5432 --name kwil-postgres -e "POSTGRES_HOST_AUTH_METHOD=trust" \
+    kwildb/postgres:latest
+```
+
+### Run Kwild
 
 You can start a single node network using the `kwild` binary built in the step above:
 
@@ -39,7 +46,7 @@ You can start a single node network using the `kwild` binary built in the step a
 
 For more information on running nodes, and how to run a multi-node network, refer to the Kwil [documentation](<https://docs.kwil.com/docs/node/quickstart>).
 
-## Building and Using Docker Image
+## Building and Using Docker Image // TODO: Rewrite me please
 
 To build a Docker image of TSN-DB with seed data, run the following command:
 
