@@ -25,6 +25,11 @@ tasks:
     cmds:
       - docker start kwil-postgres || docker run -d -p 5432:5432 --name kwil-postgres -e "POSTGRES_HOST_AUTH_METHOD=trust" kwildb/postgres:latest
 
+  compose:
+    desc: Run docker-compose
+    cmds:
+      - docker compose up
+
   tools:
     desc: Install tools
     cmds:
@@ -53,3 +58,9 @@ tasks:
     desc: Seed the database
     cmds:
       - bash ./scripts/setup.sh
+
+# TODO: Test needs to be fixed first on issue 120 and 129
+#  test:unit:
+#    desc: Run unit tests
+#    cmds:
+#      - go test ./...

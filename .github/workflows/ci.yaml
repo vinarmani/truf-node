@@ -8,128 +8,65 @@ on:
   push:
     branches:
       - main
+      - refactor/upgrade-zero-seven
 
 jobs:
   acceptance-test:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }} # only run on non-draft PRs
+    if: ${{ !github.event.pull_request.draft }}
     steps:
-      # Clear cache to avoid no space left on device
       - name: Clear cache
         if: ${{ !env.ACT }} # skip during local actions testing
         run: |
-          echo "hello"
-#          sudo rm -rf /usr/share/dotnet
-#          sudo rm -rf /opt/ghc
-#          sudo rm -rf "/usr/local/share/boost"
-#          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-#
-#      - name: Checkout
-#        uses: actions/checkout@v3
-#        with:
-#          submodules: true
-#          token: ${{ secrets.GITHUB_TOKEN }}
-#
-#      - name: Install Protoc
-#        uses: arduino/setup-protoc@v2
-#        with:
-#          version: '23.4'
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
-#
-#      - name: Install Taskfile
-#        uses: arduino/setup-task@v1
-#        with:
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
-#
-#      - name: Setup Go
-#        uses: actions/setup-go@v4
-#        with:
-#          go-version: '1.21'
-#          check-latest: true
-#
-#      - name: Install dependencies
-#        env:
-#          GH_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#        run: |
-#          go version
-#          git config --global url."https://${GH_ACCESS_TOKEN}:x-oauth-basic@github.com/truflation/".insteadOf "https://github.com/truflation/"
-#          task install:deps
-#          go mod download
-#
-#      - name: Lint
-#        uses: golangci/golangci-lint-action@v4
-#        with:
-#          skip-pkg-cache: true
-#
-#      - name: Run Go Tests
-#        run: |
-#          task test:unit
-#
-#      - name: Generate go vendor
-#        #for faster builds and private repos, need to run this after pb:compile:v1
-#        run: |
-#          task vendor
-#
-#      - name: Set up Docker Buildx
-#        uses: docker/setup-buildx-action@v2
-#
-#      - name: Restore Docker layers
-#        id: restore_cache
-#        uses: actions/cache/restore@v4
-#        with:
-#          path: /tmp/.buildx-cache-tsn-db
-#          # we don't use sha, so we can reuse between commits.
-#          # docker takes care of invalidating the cache if the build context changes
-#          #key: ${{ runner.os }}-buildx-tsn-db-${{ github.sha }}
-#          key: ${{ runner.os }}-buildx-tsn-db
-#
-#      - name: Build image
-#        id: docker_build_tsn_db
-#        uses: docker/build-push-action@v4
-#        with:
-#          context: .
-#          builder: ${{ steps.buildx.outputs.name }}
-#          build-args: |
-#            git_commit=${{ github.sha }}
-#            version=${{ steps.config.outputs.version }}
-#            build_time=${{ github.event.release.created_at }}
-#            # hardcoded for testing reasons
-#            whitelist_wallets=0x304e893AdB2Ad8E8C37F4884Ad1EC3df8bA9bDcf
-#          file: ./truflation/docker/tsn.dockerfile
-#          cache-from: type=local,src=/tmp/.buildx-cache-tsn-db
-#          cache-to: type=local,dest=/tmp/.buildx-cache-tsn-db-new
-#          tags: tsn-db:latest
-#          load: true
-#
-#      - name: Move cache
-#        run: |
-#          rm -rf /tmp/.buildx-cache-tsn-db
-#          mv /tmp/.buildx-cache-tsn-db-new /tmp/.buildx-cache-tsn-db
-#
-#      # we save already to be able to free up space
-#      - name: Save Docker layers Cache
-#        uses: actions/cache/save@v4
-#        with:
-#          path: /tmp/.buildx-cache-tsn-db
-#          # we don't use sha, so we can reuse between commits.
-#          # docker takes care of invalidating the cache if the build context changes
-#          #key: ${{ runner.os }}-buildx-tsn-db-${{ github.sha }}
-#          key: ${{ steps.restore_cache.outputs.cache-primary-key }}
-#
-#      - name: Free Up Space
-#        run: |
-#          docker system prune -f
-#          rm -rf /tmp/.buildx-cache-tsn-db
-#
-#      - name: Run tsn-db image
-#        run: |
-#          task build:cli
-#          docker_id=$(docker run -p 8080:8080 -d tsn-db:latest)
-#
-#          # wait for the server to start
-#          # -f = follow logs | -m1 = only one match | -o = only matching | -P = perl regex
-#          # last pipe avoid failing on broken pipes (141), preserving other error codes
-#          # PS: multiline command with \ isn't working here
-#          timeout 300 docker logs $docker_id -f | grep  -m1 -oP '"Health check state changed","state":"up"' || { ec=$?; [ $ec -eq 141 ] && true || (exit $ec); }
-#
-#                    ./truflation/scripts/ci-tests.sh || (echo "Command failed, printing logs:" && docker logs $docker_id && exit 1)
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - uses: actions/checkout@v4
+
+      - name: Setup Local uuidgen
+        if: ${{ env.ACT }} # we just need that for local actions testing
+        run: |
+          sudo apt-get update
+          sudo apt-get install uuid-runtime
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Lint
+        if: ${{ !env.ACT }} # skip during local actions testing
+        uses: golangci/golangci-lint-action@v4
+        with:
+          args: --timeout=30m --config=.golangci.yml --issues-exit-code=0
+          skip-cache: true
+
+        # TODO: Test needs to be fixed first on issue 120 and 129
+##      - name: Run Go Tests
+##        run: |
+##          task test:unit
+
+      - name: Docker Compose Up
+        uses: isbang/compose-action@v1.5.1
+        with:
+          compose-file: "./compose.yaml"
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip pandas
+
+      # It takes time to download the kwil binary and extract kwil-cli so I push kwil-cli to the repo.
+      # It needed to seed database. Are there any better way to do this?
+      # PRIVATE_KEY and WHITELIST_WALLETS are hardcoded for testing reasons
+      - name: Seed Database and Run Tests
+        run: |
+          timeout 300 docker logs tsn-db-tsn-db-1 -f | grep  -m1 -oP '"Health check state changed","state":"up"' || { ec=$?; [ $ec -eq 141 ] && true || (exit $ec); }
+          export PRIVATE_KEY="0000000000000000000000000000000000000000000000000000000000000001"
+          export WHITELIST_WALLETS="0x304e893AdB2Ad8E8C37F4884Ad1EC3df8bA9bDcf"
+          scripts/setup.sh
+          scripts/ci-tests.sh
