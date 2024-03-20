@@ -291,10 +291,11 @@ systemctl enable tsn-db-app.service
 systemctl start tsn-db-app.service`
 
 	kwilGatewayBinaryScript := `#!/bin/bash
-unzip /tmp/kwil-binaries/kgw_v0.1.2.zip -d /tmp/kwil-binaries
-mkdir -p /tmp/kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
-tar -xf /tmp/kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64.tar.gz -C /tmp/kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
-chmod +x /tmp/kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64/kgw
+aws s3 cp s3://kwil-binaries/gateway/kgw_v0.1.2.zip /tmp/kgw_v0.1.2.zip
+unzip /tmp/kgw_v0.1.2.zip -d /tmp
+mkdir -p /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
+tar -xf /tmp/kgw_v0.1.2/kgw_0.1.2_linux_arm64.tar.gz -C /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
+chmod +x /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64/kgw
 `
 	instance.AddUserData(&script1Content, &kwilGatewayBinaryScript)
 }
