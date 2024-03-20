@@ -1,8 +1,12 @@
 .git
-.env
+.env*
+!.env.example
 .idea
 
 .build/kwild
+
+go.work*
+vendor
 
 scripts/temp_csv
 scripts/composed_streams.csv
