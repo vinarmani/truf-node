@@ -296,6 +296,7 @@ unzip /tmp/kgw_v0.1.2.zip -d /tmp
 mkdir -p /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
 tar -xf /tmp/kgw_v0.1.2/kgw_0.1.2_linux_arm64.tar.gz -C /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64
 chmod +x /kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64/kgw
+mv /tmp/kwil-binaries/kgw_v0.1.2/kgw_0.1.2_linux_arm64/kgw /usr/local/bin/kgw
 `
 	instance.AddUserData(&script1Content, &kwilGatewayBinaryScript)
 }
