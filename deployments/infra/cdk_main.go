@@ -95,8 +95,13 @@ func TsnDBCdkStack(scope constructs.Construct, id string, props *CdkStackProps) 
 		Path: jsii.String("../../compose.yaml"),
 	})
 
+	kgwDirectoryAsset := awss3assets.NewAsset(stack, jsii.String("KgwComposeAsset"), &awss3assets.AssetProps{
+		Path: jsii.String("../gateway/"),
+	})
+
 	initElements := []awsec2.InitElement{
 		awsec2.InitFile_FromExistingAsset(jsii.String("/home/ec2-user/docker-compose.yaml"), dockerComposeAsset, nil),
+		awsec2.InitFile_FromExistingAsset(jsii.String("/home/ec2-user/kgw/"), kgwDirectoryAsset, nil),
 	}
 
 	// default vpc
@@ -277,7 +282,7 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 # This path comes from the init asset
-ExecStart=/bin/bash -c "docker compose -f /home/ec2-user/docker-compose.yaml up -d"
+ExecStart=/bin/bash -c "docker compose -f /home/ec2-user/docker-compose.yaml up -d --wait"
 ExecStop=/bin/bash -c "docker compose -f /home/ec2-user/docker-compose.yaml down"
 ` + getEnvStringsForService(getEnvVars("WHITELIST_WALLETS", "PRIVATE_KEY")) + `
 
@@ -295,7 +300,34 @@ aws s3 cp s3://kwil-binaries/gateway/kgw_v0.1.2.zip /tmp/kgw_v0.1.2.zip
 unzip /tmp/kgw_v0.1.2.zip -d /tmp/
 tar -xf /tmp/kgw_v0.1.2/kgw_0.1.2_linux_amd64.tar.gz -C /tmp/kgw_v0.1.2
 chmod +x /tmp/kgw_v0.1.2/kgw
-mv /tmp/kgw_v0.1.2/kgw /usr/local/bin/kgw
+# we send the binary as it is expected by the docker-compose file
+mv /tmp/kgw_v0.1.2/kgw /home/ec2-user/kgw/
+
+
+cat <<EOF > /etc/systemd/system/kgw.service
+[Unit]
+Description=Kwil Gateway Compose
+# must come after tsn-db service, as the network is created by the tsn-db service
+After=tsn-db-app.service
+Requires=tsn-db-app.service\
+Restart=on-failure
+
+[Service]
+type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c "docker compose -f /home/ec2-user/kgw/gateway-compose.yaml up -d --wait"
+ExecStop=/bin/bash -c "docker compose -f /home/ec2-user/kgw/gateway-compose.yaml down"
+` + getEnvStringsForService(getEnvVars("SESSION_SECRET", "CORS_ALLOWED_ORIGINS")) + `
+
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+
+systemctl daemon-reload
+systemctl enable kgw.service
+systemctl start kgw.service
 `
 	instance.AddUserData(&script1Content, &kwilGatewayBinaryScript)
 }
