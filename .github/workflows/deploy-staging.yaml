@@ -82,8 +82,14 @@ jobs:
 
           cdk deploy --require-approval never
         env:
+          # args used in tsn-db compose
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           WHITELIST_WALLETS: ${{ vars.whitelist_wallets }}
+
+          # args used in gateway compose
+          SESSION_SECRET: ${{ secrets.GW_SESSION_SECRET }}
+          # e.g. our frontend. If not provided, defaults to *
+          CORS_ALLOWED_ORIGINS: ${{ vars.GW_CORS_ALLOWED_ORIGINS }}
 
       - name: Move cache
         run: |
