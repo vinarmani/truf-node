@@ -1,6 +1,8 @@
 {
-  "backends": "http://tsn-db:8080",
+  "backends": [
+    "tsn-db:8080"
+  ],
   "listen_addr": "0.0.0.0:8090",
   "statement": "I agree to the terms and conditions.",
-  "chain_id": "kwil-test-chain",
+  "chain_id": "kwil-test-chain"
 }

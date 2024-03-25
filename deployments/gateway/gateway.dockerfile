@@ -44,7 +44,7 @@ WORKDIR /app
 
 # we expect the user to provide the binary path available at the build context
 ARG SESSION_SECRET
-ARG CORS_ALLOWED_ORIGINS="*"
+ARG CORS_ALLOWED_ORIGINS
 ARG DOMAIN
 
 COPY ./kgw ./kgw
