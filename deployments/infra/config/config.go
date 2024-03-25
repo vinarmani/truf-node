@@ -61,3 +61,13 @@ func DeploymentStage(scope constructs.Construct) DeploymentStageType {
 
 	return deploymentStage
 }
+
+func Domain(scope constructs.Construct) *string {
+	domainEnvMap := map[DeploymentStageType]string{
+		DeploymentStage_DEV:     "dev.tsn.truflation.com",
+		DeploymentStage_STAGING: "staging.tsn.truflation.com",
+		DeploymentStage_PROD:    "tsn.truflation.com",
+	}
+
+	return jsii.String(domainEnvMap[DeploymentStage(scope)])
+}
