@@ -36,11 +36,6 @@ jobs:
           go mod download
           go work vendor
 
-#      - name: Generate go vendor
-#        #for faster builds and private repos, need to run this after pb:compile:v1
-#        run: |
-#          go work vendor
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
@@ -88,8 +83,10 @@ jobs:
 
           # args used in gateway compose
           SESSION_SECRET: ${{ secrets.GW_SESSION_SECRET }}
-          # e.g. our frontend. If not provided, defaults to *
+          # E.g.: our frontend. If not provided, defaults to *
           CORS_ALLOWED_ORIGINS: ${{ vars.GW_CORS_ALLOWED_ORIGINS }}
+          # domain is also used, but it is hardcoded in the CDK process depending on environment
+          # e.g.: for staging, it is set to 'staging.tsn.truflation.com'
 
       - name: Move cache
         run: |

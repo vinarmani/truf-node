@@ -6,6 +6,7 @@ services:
       args:
         - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
         - SESSION_SECRET=${SESSION_SECRET:?}
+        - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
       context: .
       dockerfile: ./gateway.dockerfile
     ports:
@@ -21,8 +22,16 @@ services:
       - "80:80"
     volumes:
       - type: bind
-        source: ./kgw.nginx.conf
+        source: ./nginx.conf
         target: /etc/nginx/nginx.conf
+      - type: bind
+        source: ./default.conf.template
+        target: /etc/nginx/templates/default.conf.template
+      - type: bind
+        source: /etc/pki/nginx/nginx-acm.conf
+        target: /etc/pki/nginx/nginx-acm.conf
+    environment:
+      DOMAIN_NAME=${DOMAIN_NAME:-localhost}
     depends_on:
       - kwil-gateway
     networks:

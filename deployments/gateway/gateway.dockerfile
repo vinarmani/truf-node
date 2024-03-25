@@ -45,7 +45,7 @@ WORKDIR /app
 # we expect the user to provide the binary path available at the build context
 ARG SESSION_SECRET
 ARG CORS_ALLOWED_ORIGINS="*"
-
+ARG DOMAIN
 
 COPY ./kgw ./kgw
 COPY ./kgw.base-config.json ./config/config.json
@@ -54,4 +54,4 @@ COPY ./kgw.base-config.json ./config/config.json
 RUN /app/kgw version | grep -q "Usage: kgw"
 
 CMD ["./kgw -c ./config/config.json --session-secret $SESSION_SECRET\
- --cors-allow-origins $CORS_ALLOWED_ORIGINS"]
+ --cors-allow-origins $CORS_ALLOWED_ORIGINS --domain $DOMAIN"]
