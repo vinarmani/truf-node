@@ -11,12 +11,12 @@ func AddKwilGatewayStartupScriptsToInstance(options AddKwilGatewayStartupScripts
 	domain := options.Domain
 
 	kgwSetupScript := `#!/bin/bash
-aws s3 cp s3://kwil-binaries/gateway/kgw_v0.1.2.zip /tmp/kgw_v0.1.2.zip
-unzip /tmp/kgw_v0.1.2.zip -d /tmp/
-tar -xf /tmp/kgw_v0.1.2/kgw_0.1.2_linux_amd64.tar.gz -C /tmp/kgw_v0.1.2
-chmod +x /tmp/kgw_v0.1.2/kgw
+aws s3 cp s3://kwil-binaries/gateway/kgw_v0.1.3.zip /tmp/kgw_v0.1.3.zip
+unzip /tmp/kgw_v0.1.3.zip -d /tmp/
+tar -xf /tmp/kgw_v0.1.3/kgw_0.1.3_linux_amd64.tar.gz -C /tmp/kgw_v0.1.3
+chmod +x /tmp/kgw_v0.1.3/kgw
 # we send the binary as it is expected by the docker-compose file
-mv /tmp/kgw_v0.1.2/kgw /home/ec2-user/kgw/
+mv /tmp/kgw_v0.1.3/kgw /home/ec2-user/kgw/
 
 # Install the AWS Nitro Enclaves CLI, to be able to use the ACM agent
 # for certificate management with nginx
