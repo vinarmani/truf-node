@@ -77,6 +77,7 @@ services:
 networks:
   tsn-network:
     driver: bridge
+    name: tsn-network
 
 volumes:
   data-kwil-postgres:

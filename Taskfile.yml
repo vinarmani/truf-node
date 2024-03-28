@@ -62,6 +62,17 @@ tasks:
       - rm -r ~/.kwild || true
       - docker volume rm tsn-db_data-kwil-postgres tsn-db_data-push-tsn-data -f
 
+  setup:local-cert:
+    desc: Trust local certs for development
+    cmds:
+      - sudo cp ./deployments/dev-gateway/certs/localhost.crt /usr/local/share/ca-certificates/localhost.crt
+      - sudo update-ca-certificates
+
+  start:local-gateway:
+    desc: The gateway is not needed for development. However, you might want to test its configuration.
+    cmds:
+      - docker compose -f deployments/dev-gateway/dev-gateway-compose.yaml up -d
+
   seed:
     desc: Seed the database
     cmds:
