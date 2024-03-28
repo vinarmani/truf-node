@@ -1,237 +1,78 @@
 version: "3"
 
-includes:
-  pb: ./Taskfile-pb.yml
-
 tasks:
   default:
     cmds:
       - task -l
 
-  install:deps:
-    aliases: [tools]
-    desc: Install tools required to build this app
+  build:
+    desc: Build kwild binary
     cmds:
-      - go install "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.16.2"
-      - go install "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.16.2"
-      - go install "golang.org/x/tools/cmd/goimports@v0.14.0"
-      - go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0"
-      - go install "google.golang.org/protobuf/cmd/protoc-gen-go@v1.31.0"
+      - go build -o ./.build/kwild ./cmd/kwild/main.go
 
-  git:init:
-    desc: Initialize git submodules
+  build:debug:
+    desc: Build kwild binary with debug flags
     cmds:
-      - git submodule update --init
+      - go build -gcflags "all=-N -l" -o ./.build/kwild ./cmd/kwild/main.go
 
-  git:sync:
-    desc: Sync git submodules to required revisions
+  kwild:
+    desc: Run kwild server
     cmds:
-      - git submodule update
+      - .build/kwild --autogen
 
-  git:advance:
-    desc: Advance git submodules to latest main revision
+  postgres:
+    desc: Run a postgres container
     cmds:
-      - git submodule update --remote
+      - docker start kwil-postgres || docker run -d -p 5432:5432 --name kwil-postgres -e "POSTGRES_HOST_AUTH_METHOD=trust" kwildb/postgres:latest
 
-  init:
-    desc: Initialize the project
-    deps: [install:deps, git:init]
+  compose:
+    desc: Run docker-compose locally
+    env:
+      PRIVATE_KEY: "0000000000000000000000000000000000000000000000000000000000000001" # feel free to change this private key if you have one, it is for local development anyway
+     # WHITELIST_WALLETS: "0x304e893AdB2Ad8E8C37F4884Ad1EC3df8bA9bDcf" # feel free to uncomment and change this whitelist wallets if you want to use whitelist wallets feature in local development
     cmds:
-      - go mod download
+      - docker compose up
 
-  fmt:
-    desc: Format the code
+  tools:
+    desc: Install tools
     cmds:
-      # goimports does not allow to ignore certain paths (protobuf) with modules,
-      # so we have to list all the folders that are adjacent to protobuf.
-      - |
-        goimports -format-only -w ./cmd ./internal ./test ./core/client \
-          ./core/crypto ./core/log ./core/rpc/client ./core/rpc/conversion \
-          ./core/rpc/transport ./core/types ./core/utils
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.56.2
+      - go install github.com/vektra/mockery/v2@v2.42.1
 
-  tidy:
-    desc: go mod tidy each module
+  mockery:
+    desc: Generate mocks
     cmds:
-      # This is simple, but it require to run go mod tidy in each module's folder,
-      # and from bottom to top in terms of dependencies.
-      - |
-        (cd core; go mod tidy)
-        (cd parse; go mod tidy)
-        go mod tidy
-        (cd test; go mod tidy)
+      - mockery --all
 
   lint:
-    desc: Lint with golangci-lint
+    desc: Run linter
     cmds:
-      # skip-dirs only works in .yaml
-      - golangci-lint run ./... ./core/... ./test/... ./parse/... -c .golangci.yml
+      - golangci-lint run
 
-  linter:
-    desc: Install the linter (not for CI which has an action for this)
+  kwil-cli:
     cmds:
-      - go install "github.com/golangci/golangci-lint/cmd/golangci-lint@v1.54.2"
+      - wget -O kwil-db.tar.gz https://github.com/kwilteam/kwil-db/releases/download/v0.7.0/kwil-db_0.7.0_linux_amd64.tar.gz
+        && tar -xzvf kwil-db.tar.gz 'kwil-cli'
+        && mkdir -p ./.build
+        && mv ./kwil-cli .build
+        && rm ./kwil-db.tar.gz
 
-  build:
-    desc: Build cli, admin & kwild
+  clear-data:
     cmds:
-      - task: build:cli
-      - task: build:kwild
-      - task: build:admin
+      - rm -r ~/.kwild || true
+      - docker volume rm tsn-db_data-kwil-postgres tsn-db_data-push-tsn-data -f
 
-  build:cli:
-    desc: Build kwil-cli
+  seed:
+    desc: Seed the database
     cmds:
-      - ./scripts/build/binary kwil-cli #-mod=mod
-    generates:
-      - .build/kwil-cli
-
-  build:admin:
-    desc: Build kwil-admin
-    cmds:
-      - ./scripts/build/binary kwil-admin
-    generates:
-      - .build/kwil-admin
-
-  build:kwild:
-    desc: Builds kwild server
-    cmds:
-      - ./scripts/build/binary kwild #-mod=mod
-    generates:
-      - .build/kwild
-
-  generate:docs:
-    desc: Generate docs for CLIs
-    cmds:
-      - go run ./cmd/kwil-cli/generate -out ./gen
-      - go run ./cmd/kwil-admin/generate -out ./gen
-
-  # ************ docker ************
-  vendor:
-    desc: Generate vendor
-    deps:
-      - task: vendor:clean
-    cmds:
-      # somehow GOWORK=off has no effect on local dev workflow, it will include local module changes
-      - GOWORK=off go mod vendor
-
-  vendor:clean:
-    desc: Clean vendor
-    cmds:
-      - rm -rf ./vendor
-
-  build:docker:
-    desc: Build the docker image for the kwild, support extra args to specify image flavor
-    cmds:
-      - task: vendor
-      - defer: { task: vendor:clean }
-      # pass any args to build flavored image, e.g. task build:docker -- debug
-      # NOTE: this is kind hack/messy, since `./scripts/build/docker` only care first 2 args
-      # {{.CLI_ARGS}} is a special variable that will be replaced with the CLI args
-      # {{.VARIANT}} is a variable other tasks can set, it will have effect if {{.CLI_ARGS}} is empty
-      # !! if parent task(which has deps on this task) has {{.CLI_ARGS}}, only this child task get the {{.CLI_ARGS}}
-      - GO_BUILDTAGS="{{.GO_BUILDTAGS}}" ./scripts/build/docker kwild {{.CLI_ARGS}} {{.VARIANT}}
-
-  publish:dockerhub:
-    desc: Publish docker image to dockerhub
-    cmds:
-      - task: vendor
-      - defer: { task: vendor:clean }
-      # TAG is the docker tag. GO_BUILDTAGS is the build tags for go build
-      - TAG={{.TAG}} GO_BUILDTAGS="{{.GO_BUILDTAGS}}" ./scripts/publish/dockerhub
-    requires:
-      vars: [TAG]
-
-  # ************ dev ************
-  dev:up:
-    desc: Start the dev environment
-    deps:
-      - task: build:docker
-    cmds:
-      - task: dev:up:nb
-
-  dev:up:debug:
-    desc: Start the dev environment
-    deps:
-      - task: build:docker
-        vars: { VARIANT: 'debug' }
-    cmds:
-      - task: dev:up:nb
-
-  dev:up:nb:
-    desc: Start the dev environment without rebuilding docker image
-    env:
-      # NOTE: this timeout should be long enough to attach to debugger
-      KACT_WAIT_TIMEOUT: 20s
-    dir: test # different module
-    cmds:
-      - go test ./acceptance -run ^TestKwildAcceptance$ -timeout 12h -dev -v
-
-  dev:testnet:up:
-    desc: Start the dev environment(with testnet)
-    deps:
-      - task: build:docker
-    cmds:
-      - task: dev:testnet:up:nb
-
-  dev:testnet:up:nb:
-    desc: Start the dev environment(with testnet) without rebuilding docker image
-    dir: test # different module
-    cmds:
-      - go test ./integration -run ^TestLocalDevSetup$ -timeout 12h -dev -v
-
-  # ************ test ************
-  # test with build:docker task support passing CLI_ARGS to go test, e.g. task test:act -- -debug
-  # but this CLI_ARGS will only be used by `build:docker`
-  test:act:
-    desc: Run acceptance tests
-    deps:
-      - task: build:cli
-      - task: build:admin
-      - task: build:docker
-    cmds:
-      - task: test:act:nb
-
-  # *:nb task support passing CLI_ARGS to go test
-  # this CLI_ARGS will be used by `go test`
-  # e.g.
-  # - task test:act:nb -- -remote
-  # - task test:act:nb -- -drivers grpc
-  test:act:nb:
-    desc: Run acceptance tests without building docker image
-    dir: test # different module
-    cmds:
-      - go test ./acceptance -count=1 -v {{.CLI_ARGS}}
+      - bash ./scripts/setup.sh
 
   test:unit:
     desc: Run unit tests
     cmds:
-      - go test ./truflation/... -count=1
+      - go test ./internal/extensions/...
 
-
-  test:unit:race:
-    desc: Run unit tests with the race detector
+  coverage:
+    desc: Run coverage
     cmds:
-      - go test ./core/... -tags=ext_test -count=1 -race
-      - go test ./parse/... -tags=ext_test -count=1 -race
-      - go test ./... -tags=ext_test -count=1 -race
-
-  test:it:
-    desc: Run integration tests ('short' mode)
-    deps:
-      - task: build:cli
-      - task: build:admin
-      - task: build:docker
-    cmds:
-      - task: test:it:nb
-
-  test:it:nb:
-    desc: Run integration tests ('short' mode)
-    dir: test # different module
-    cmds:
-      - go test -short -count=1 -timeout 0 ./integration -v {{.CLI_ARGS}}
-
-  test:it:nb:all:
-    desc: Run integration tests
-    dir: test # different module
-    cmds:
-      - go test -count=1 -timeout 0 ./integration -v {{.CLI_ARGS}}
+      - bash ./scripts/coverage.sh

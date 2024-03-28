@@ -1,55 +1,15 @@
-**/vue/node_modules
-**/vue/dist
-**/release/
-**/.idea/
-.vscode/
-**/.DS_Store
-**/tmp/
-**/finished_logs/
-**/.kwal/
-cmd/kwild/kwild
-cmd/kwil-admin/kwil-admin
-cmd/kwil-cli/kwil-cli
-keys/cosmos
-keys/ethereum.pem
-.kwilbadger/
-.testkwilbadger/
-.wal/
-cmd/cmd
-.lck
-.data/
-.build/
-.task/
-*.pprof
-**/__debug_bin.exe
-**/__debug_bin*
-.pgdata/
-.DS_Store
-**/**/node_modules
-_ignore
-.local_env
-api/openapi-spec/api/v0/api.swagger.json
-.goreleaser.yaml
-.env
-test/stress/stress
+.git
+.env*
+!.env.example
+.idea
 
-gen/
-# helm charts deps
-deployments/helm/*/charts/
+.build/kwild
 
-dist/*
+go.work*
+vendor
 
-# tools
-swagger-codegen-cli.jar
-
-# kwild
-.testnet
-
-# IDE
-.run
-
-# go
-vendor/
-
-go.work
-go.work.sum
+scripts/temp_csv
+scripts/composed_streams.csv
+scripts/temp_composed_schemas
+scripts/secret_db_credentials.json
+scripts/produce_source_maps/all_tables.csv

@@ -61,7 +61,7 @@ fi
 
 export GO_LDFLAGS="$GO_LDFLAGS" # https://github.com/koalaman/shellcheck/issues/2064
 
-export SOURCE="github.com/kwilteam/kwil-db/cmd/${BINARY}"
+export SOURCE="./app/cmd/kwild/main.go"
 
 GO_GCFLAGS="${GO_GCFLAGS:-}"
 export GO_GCFLAGS="$GO_GCFLAGS"
