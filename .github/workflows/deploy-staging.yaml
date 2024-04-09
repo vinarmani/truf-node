@@ -6,14 +6,24 @@ on:
       - main
 
 jobs:
-#  tests:
-#    uses: ./.github/workflows/ci.yaml  # don't forget to add `on: [workflow_call]` to permit it
+  #  tests:
+  #    uses: ./.github/workflows/ci.yaml  # don't forget to add `on: [workflow_call]` to permit it
   build-image:
     environment: production
     name: Build image
     runs-on: ubuntu-latest
-#    needs: [ tests ]  # require tests to pass before deploy runs
+    #    needs: [ tests ]  # require tests to pass before deploy runs
     steps:
+      - name: Check secrets
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          GW_SESSION_SECRET: ${{ secrets.GW_SESSION_SECRET }}
+        if: ${{ env.PRIVATE_KEY == '' || env.AWS_ACCESS_KEY == '' || env.AWS_SECRET_KEY == '' || env.GW_SESSION_SECRET == '' }}
+        run: |
+          echo "Missing secrets"
+          exit 1
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -34,11 +44,6 @@ jobs:
           go work use deployments/infra
           go mod download
           go work vendor
-
-#      - name: Generate go vendor
-#        #for faster builds and private repos, need to run this after pb:compile:v1
-#        run: |
-#          go work vendor
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -68,9 +73,18 @@ jobs:
           # this must be on absolute path
           export CDK_DOCKER=$(pwd)/buildx.sh
 
-          cdk deploy --require-approval never
+          cdk deploy --require-approval never --all
         env:
+          # args used in tsn-db compose
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           WHITELIST_WALLETS: ${{ vars.whitelist_wallets }}
           WRITE_WHITELIST_WALLETS: ${{ vars.write_whitelist_wallets }}
           CI: true
+
+          # args used in gateway compose
+          # the job should fail if GW_SESSION_SECRET is not set
+          SESSION_SECRET: ${{ secrets.GW_SESSION_SECRET }}
+          # E.g.: our frontend. If not provided, defaults to *
+          CORS_ALLOWED_ORIGINS: ${{ vars.GW_CORS_ALLOWED_ORIGINS }}
+          # domain is also used, but it is hardcoded in the CDK process depending on environment
+          # e.g.: for staging, it is set to 'staging.tsn.truflation.com'

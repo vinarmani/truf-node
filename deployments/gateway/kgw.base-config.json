@@ -1,0 +1,7 @@
+{
+  "backends": [
+    "tsn-db:8080"
+  ],
+  "listen_addr": "0.0.0.0:8090",
+  "statement": "I agree to the terms and conditions."
+}

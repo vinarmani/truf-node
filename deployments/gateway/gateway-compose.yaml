@@ -1,0 +1,44 @@
+services:
+  kwil-gateway:
+    container_name: kwil-gateway
+    hostname: kwil-gateway
+    build:
+      args:
+        - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+        - SESSION_SECRET=${SESSION_SECRET:?}
+        - DOMAIN=https://${DOMAIN:-localhost}
+      context: .
+      dockerfile: ./gateway.dockerfile
+    ports:
+      - "8090:8090"
+    networks:
+      - tsn-network
+
+  nginx:
+    container_name: nginx
+    hostname: nginx
+    image: "nginx:latest"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ./nginx.conf
+        target: /etc/nginx/nginx.conf
+      - type: bind
+        source: ./default.conf.template
+        target: /etc/nginx/templates/default.conf.template
+    environment:
+      - DOMAIN_NAME=${DOMAIN:-localhost}
+    depends_on:
+      - kwil-gateway
+    networks:
+      - tsn-network
+
+
+networks:
+  tsn-network:
+    driver: bridge
+    name: tsn-network
+    # should already be created by compose.yaml
+    external: true
