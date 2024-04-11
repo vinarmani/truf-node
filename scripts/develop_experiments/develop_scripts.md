@@ -45,13 +45,13 @@ rm -r ~/.kwild
 
 ```shell
 ../../.build/kwil-cli database drop stream_a --sync
-../../.build/kwil-cli database deploy --sync -p=<(exec ../use_base_schema.sh) --name=stream_a --sync
+../../.build/kwil-cli database deploy --sync -p=<(exec ../use_primitive_contract.sh) --name=stream_a --sync
 ../../.build/kwil-cli database batch --sync --path ./test_samples/stream_a.csv --action add_record --name=stream_a --sync
 ```
 
 ```shell
 ../../.build/kwil-cli database drop stream_b --sync
-../../.build/kwil-cli database deploy -p=<(exec ../use_base_schema.sh) --name=stream_b --sync
+../../.build/kwil-cli database deploy -p=<(exec ../use_primitive_contract.sh) --name=stream_b --sync
 ../../.build/kwil-cli database batch --sync --path ./test_samples/stream_b.csv --action add_record --name=stream_b
 ```
 
@@ -148,7 +148,7 @@ Expected:
 | 2000-07-19 | 20   | 1     | 2,9      |
 
 ```shell
-../../.build/kwil-cli database call -a=get_value date:"2000-07-19" date_to:"" -n=composed
+../../.build/kwil-cli database call -a=get_primitive date:"2000-07-19" date_to:"" -n=composed
 ```
 
 | date       | value |
@@ -183,7 +183,7 @@ This value should be 10% of corn futures value on 2000-07-19. We purposely set h
 | 2000-07-30 | 50   | 50    | 50       |
 
 ```shell
-../../.build/kwil-cli database call -a=get_value date:"2000-07-23" date_to:"2000-07-30" -n=composed
+../../.build/kwil-cli database call -a=get_primitive date:"2000-07-23" date_to:"2000-07-30" -n=composed
 ```
 
 Expected:
@@ -200,7 +200,7 @@ Expected:
 | 2000-07-30 | 50000 |
 
 ```shell
-../../.build/kwil-cli database call -a=get_value date:"2000-07-28" date_to:"2000-07-30" -n=composed
+../../.build/kwil-cli database call -a=get_primitive date:"2000-07-28" date_to:"2000-07-30" -n=composed
 ```
 
 | date       | value |
@@ -231,7 +231,7 @@ private_key="26aff20bde5606467627557793ebbb6162e9faf9f2d0830fd98a6f207dcf605d"
 address="0x304e893AdB2Ad8E8C37F4884Ad1EC3df8bA9bDcf"
 
 ../../.build/kwil-cli database drop $db_name --sync
-../../.build/kwil-cli database deploy -p=<(exec ../use_base_schema.sh $address) --name=$db_name --sync
+../../.build/kwil-cli database deploy -p=<(exec ../use_primitive_contract.sh $address) --name=$db_name --sync
 ../../.build/kwil-cli database batch --sync --path ./test_samples/stream_b.csv --action add_record --name=$db_name
 ```
 

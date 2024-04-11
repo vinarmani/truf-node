@@ -1,4 +1,4 @@
-package basestream
+package primitive_stream
 
 import (
 	"context"
@@ -20,20 +20,20 @@ func Test_Index(t *testing.T) {
 		DBID: "dbid",
 		Ctx:  context.Background(),
 	}
-	b := &BaseStreamExt{
+	b := &PrimitiveStreamExt{
 		table:       "price",
 		dateColumn:  "date",
 		valueColumn: "value",
 	}
 
 	mockStmts := map[string]*sql.ResultSet{
-		b.sqlGetBaseValue():                 mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 75000}}),  // 75.000
-		b.sqlGetLatestValue():               mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}), // 200.000
-		b.sqlGetSpecificValue("2024-01-01"): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}), // 150.000
-		b.sqlGetRangeValue("2024-01-01", "2024-01-02"): mockDateScalar("value", []utils.ValueWithDate{
+		b.sqlGetBasePrimitive():                 mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 75000}}),  // 75.000
+		b.sqlGetLatestPrimitive():               mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}), // 200.000
+		b.sqlGetSpecificPrimitive("2024-01-01"): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}), // 150.000
+		b.sqlGetRangePrimitive("2024-01-01", "2024-01-02"): mockDateScalar("value", []utils.ValueWithDate{
 			{Date: "2024-01-01", Value: 150000},
 			{Date: "2024-01-02", Value: 300000},
-		}),                                                                                                                    // 150.000, 300.000
+		}), // 150.000, 300.000
 		b.sqlGetLastBefore("2024-01-01"): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 266666}}), // 266.666
 	}
 
@@ -61,7 +61,7 @@ func Test_Index(t *testing.T) {
 
 	t.Run("validation - it should return an error expected single value when base value is not a single value", func(t *testing.T) {
 		mockSql := map[string]*sql.ResultSet{
-			b.sqlGetBaseValue(): mockDateScalar("value", []utils.ValueWithDate{
+			b.sqlGetBasePrimitive(): mockDateScalar("value", []utils.ValueWithDate{
 				{Date: "2024-01-01", Value: 75000},
 				{Date: "2024-01-02", Value: 150000},
 			}),
@@ -74,7 +74,7 @@ func Test_Index(t *testing.T) {
 
 	t.Run("error - it should return an error if b.value returns an error", func(t *testing.T) {
 		mockSql := map[string]*sql.ResultSet{
-			b.sqlGetBaseValue(): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 75000}}), // 75.000
+			b.sqlGetBasePrimitive(): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 75000}}), // 75.000
 		}
 		app.Engine = newEngine(t, mockSql)
 		_, err = b.index(scope, app, "2024-01-01", nil)
@@ -87,32 +87,32 @@ func Test_Value(t *testing.T) {
 		DBID: "dbid",
 		Ctx:  context.Background(),
 	}
-	b := &BaseStreamExt{
+	b := &PrimitiveStreamExt{
 		table:       "price",
 		dateColumn:  "date",
 		valueColumn: "value",
 	}
 
 	mockStmts := map[string]*sql.ResultSet{
-		b.sqlGetLatestValue():                          mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}),                                      // 200.000
-		b.sqlGetSpecificValue("2024-01-01"):            mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}),                                      // 150.000
-		b.sqlGetRangeValue("2024-01-01", "2024-01-02"): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}, {Date: "2024-01-02", Value: 300000}}), // 150.000, 300.000
+		b.sqlGetLatestPrimitive():                          mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}),                                      // 200.000
+		b.sqlGetSpecificPrimitive("2024-01-01"):            mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}),                                      // 150.000
+		b.sqlGetRangePrimitive("2024-01-01", "2024-01-02"): mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}, {Date: "2024-01-02", Value: 300000}}), // 150.000, 300.000
 	}
 
 	app := &common.App{
 		Engine: newEngine(t, mockStmts),
 	}
 
-	returned, err := b.value(scope, app, "2024-01-01", nil)
+	returned, err := b.primitive(scope, app, "2024-01-01", nil)
 	assert.NoError(t, err)
 	assert.Equal(t, []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}, returned) // 150.000 * 1000
 
-	returned, err = b.value(scope, app, "", nil) // this should return the latest value
+	returned, err = b.primitive(scope, app, "", nil) // this should return the latest value
 	assert.NoError(t, err)
 	assert.Equal(t, []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}, returned) // 200.000 * 1000
 
 	dateTo := "2024-01-02"
-	returned, err = b.value(scope, app, "2024-01-01", &dateTo)
+	returned, err = b.primitive(scope, app, "2024-01-01", &dateTo)
 	assert.NoError(t, err)
 	assert.Equal(t, []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}, {Date: "2024-01-02", Value: 300000}}, returned) // 150.000 * 1000, 300.000 * 1000
 }
@@ -156,15 +156,15 @@ func (m *mockQuerier) Execute(ctx context.Context, tx sql.DB, dbid, query string
 	return res, nil
 }
 
-type baseStreamTest struct {
-	ctx        *precompiles.DeploymentContext
-	scope      *precompiles.ProcedureContext
-	app        *common.App
-	baseStream *BaseStreamExt
+type primitiveStreamTest struct {
+	ctx             *precompiles.DeploymentContext
+	scope           *precompiles.ProcedureContext
+	app             *common.App
+	primitiveStream *PrimitiveStreamExt
 }
 
-func newBaseStreamTest() *baseStreamTest {
-	return &baseStreamTest{
+func newPrimitiveStreamTest() *primitiveStreamTest {
+	return &primitiveStreamTest{
 		ctx: &precompiles.DeploymentContext{
 			Schema: &common.Schema{
 				Tables: []*common.Table{
@@ -184,22 +184,22 @@ func newBaseStreamTest() *baseStreamTest {
 				},
 			},
 		},
-		scope:      &precompiles.ProcedureContext{},
-		app:        &common.App{},
-		baseStream: &BaseStreamExt{},
+		scope:           &precompiles.ProcedureContext{},
+		app:             &common.App{},
+		primitiveStream: &PrimitiveStreamExt{},
 	}
 }
 
-func TestInitializeBasestream(t *testing.T) {
+func TestInitializePrimitiveStream(t *testing.T) {
 	metadata := map[string]string{
 		"table_name":   "price",
 		"date_column":  "date",
 		"value_column": "value",
 	}
 
-	instance := newBaseStreamTest()
-	t.Run("success - it should initialize the basestream", func(t *testing.T) {
-		_, err := InitializeBasestream(instance.ctx, nil, metadata)
+	instance := newPrimitiveStreamTest()
+	t.Run("success - it should initialize the primitive_stream", func(t *testing.T) {
+		_, err := InitializePrimitiveStream(instance.ctx, nil, metadata)
 		assert.NoError(t, err)
 	})
 
@@ -207,23 +207,23 @@ func TestInitializeBasestream(t *testing.T) {
 		wrongMetadata := map[string]string{
 			"wrong_table_name": "price",
 		}
-		_, err := InitializeBasestream(instance.ctx, nil, wrongMetadata)
+		_, err := InitializePrimitiveStream(instance.ctx, nil, wrongMetadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "missing table")
 	})
 
 	t.Run("validation - it should return date type must be text", func(t *testing.T) {
-		wrongInstance := newBaseStreamTest()
+		wrongInstance := newPrimitiveStreamTest()
 		wrongInstance.ctx.Schema.Tables[0].Columns[0].Type = common.INT
-		_, err := InitializeBasestream(wrongInstance.ctx, nil, metadata)
+		_, err := InitializePrimitiveStream(wrongInstance.ctx, nil, metadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "date column date must be of type TEXT")
 	})
 
 	t.Run("validation - it should return value type must be int", func(t *testing.T) {
-		wrongInstance := newBaseStreamTest()
+		wrongInstance := newPrimitiveStreamTest()
 		wrongInstance.ctx.Schema.Tables[0].Columns[1].Type = common.TEXT
-		_, err := InitializeBasestream(wrongInstance.ctx, nil, metadata)
+		_, err := InitializePrimitiveStream(wrongInstance.ctx, nil, metadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "value column value must be of type INT")
 	})
@@ -234,7 +234,7 @@ func TestInitializeBasestream(t *testing.T) {
 			"date_column":  "wrong_date",
 			"value_column": "value",
 		}
-		_, err := InitializeBasestream(instance.ctx, nil, wrongMetadata)
+		_, err := InitializePrimitiveStream(instance.ctx, nil, wrongMetadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -245,7 +245,7 @@ func TestInitializeBasestream(t *testing.T) {
 			"date_column":  "date",
 			"value_column": "wrong_value",
 		}
-		_, err := InitializeBasestream(instance.ctx, nil, wrongMetadata)
+		_, err := InitializePrimitiveStream(instance.ctx, nil, wrongMetadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -255,14 +255,14 @@ func TestInitializeBasestream(t *testing.T) {
 			"table_name":  "wrong_table",
 			"date_column": "date",
 		}
-		_, err := InitializeBasestream(instance.ctx, nil, wrongMetadata)
+		_, err := InitializePrimitiveStream(instance.ctx, nil, wrongMetadata)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 }
 
-func TestBaseStreamExt_Call(t *testing.T) {
-	instance := newBaseStreamTest()
+func TestPrimitiveStreamExt_Call(t *testing.T) {
+	instance := newPrimitiveStreamTest()
 	mockEngine := mocks.NewEngine(t)
 	instance.app.Engine = mockEngine
 	//instance.scope.SetValue("caller", "caller")
@@ -271,55 +271,55 @@ func TestBaseStreamExt_Call(t *testing.T) {
 	t.Run("success - it should return the index", func(t *testing.T) {
 		mockEngine.ExpectedCalls = nil
 		mockEngine.EXPECT().Execute(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 200000}}), nil)
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "2024-01-02"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "2024-01-02"})
 		assert.NoError(t, err)
 	})
 
 	t.Run("success - it should return the value", func(t *testing.T) {
 		mockEngine.ExpectedCalls = nil
 		mockEngine.EXPECT().Execute(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockDateScalar("value", []utils.ValueWithDate{{Date: "2024-01-01", Value: 150000}}), nil)
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_value", []any{"2024-01-01", "2024-01-02"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_primitive", []any{"2024-01-01", "2024-01-02"})
 		assert.NoError(t, err)
 	})
 
 	t.Run("validation - it should return an error if the method is unknown", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "unknown", nil)
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "unknown", nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown method")
 	})
 
 	t.Run("validation - it should return expected 2 inputs when args are not 2", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expected 2 arguments")
 	})
 
 	t.Run("validation - it should return expected string when date is not a string", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{1, "2024-01-02"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{1, "2024-01-02"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expected string")
 	})
 
 	t.Run("validation - it should return invalid date_to when date_to is not a valid date", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", 1})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", 1})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expected string for date_to")
 	})
 
 	t.Run("validation - it should return invalid date when date is not a valid date", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"wrong_date", "2024-01-02"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"wrong_date", "2024-01-02"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid date")
 	})
 
 	t.Run("validation - it should return invalid date when date_to is not a valid date", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "wrong_date"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "wrong_date"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid date")
 	})
 
 	t.Run("validation - it should return is before date when date_to is before date", func(t *testing.T) {
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-02", "2024-01-01"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-02", "2024-01-01"})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "is before date")
 	})
@@ -327,8 +327,8 @@ func TestBaseStreamExt_Call(t *testing.T) {
 	t.Run("error - it should return error when the engine returns an error", func(t *testing.T) {
 		mockEngine.ExpectedCalls = nil
 		mockEngine.EXPECT().Execute(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError)
-		_, err := instance.baseStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "2024-01-02"})
+		_, err := instance.primitiveStream.Call(instance.scope, instance.app, "get_index", []any{"2024-01-01", "2024-01-02"})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "error getting current value on db execute")
+		assert.Contains(t, err.Error(), "error getting current primitive on db execute")
 	})
 }

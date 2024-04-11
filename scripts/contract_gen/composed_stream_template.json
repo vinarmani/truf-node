@@ -15,11 +15,11 @@
         "mutability": "view",
         "auxiliaries": null,
         "statements": [
-          "streams.get_index($date,$date_to);"
+          "composed_stream.get_index($date,$date_to);"
         ]
       },
       {
-        "name": "get_value",
+        "name": "get_primitive",
         "annotations": [
           "kgw(authn='true')"
         ],
@@ -31,15 +31,15 @@
         "mutability": "view",
         "auxiliaries": null,
         "statements": [
-          "streams.get_value($date,$date_to);"
+          "composed_stream.get_primitive($date,$date_to);"
         ]
       }
     ],
     "extensions": [
       {
-        "name": "compose_truflation_streams",
+        "name": "composed_stream",
         "config": [],
-        "alias": "streams"
+        "alias": "composed_stream"
       }
     ]
   }
