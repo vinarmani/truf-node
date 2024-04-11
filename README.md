@@ -6,6 +6,10 @@ The database for Truflation Stream Network (TSN). It is built on top of the Kwil
 
 Learn more about Truflation at [Truflation.com](https://truflation.com)
 
+## Terminology
+
+See [TERMINOLOGY.md](./TERMINOLOGY.md) for a list of terms used in the TSN project.
+
 ## Build instructions
 
 ### Prerequisites
