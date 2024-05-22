@@ -54,4 +54,4 @@ ENV EXTRA_ARGS=$EXTRA_ARGS
 
 # use bash
 SHELL ["/bin/bash", "-c"]
-CMD ./kgw -c <(./pkl eval kgw-config.pkl) $EXTRA_ARGS
+CMD ./pkl eval kgw-config.pkl > ./kgw-config.json && ./kgw -c ./kgw-config.json $EXTRA_ARGS
