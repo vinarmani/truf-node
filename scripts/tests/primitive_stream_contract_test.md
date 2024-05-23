@@ -18,20 +18,26 @@ call init. If you run twice, it should error.
 
 ### Metadata
 
-insert `compose_visibility` -> 1
+insert `read_visibility` -> 1 (private)
 ```shell
-../../.build/kwil-cli database execute key:compose_visibility value:1 val_type:int --action=insert_metadata -n=primitive_stream_a --sync 
+../../.build/kwil-cli database execute key:read_visibility value:1 val_type:int --action=insert_metadata -n=primitive_stream_a --sync 
 ```
 
-get `compose_visibility`
+get `read_visibility`
 ```shell
-../../.build/kwil-cli database call key:compose_visibility only_latest:false --action=get_metadata -n=primitive_stream_a
+../../.build/kwil-cli database call key:read_visibility only_latest:false --action=get_metadata -n=primitive_stream_a
 ```
 
-disable latest `compose_visibility`
+Check read access for a public stream
 ```shell
-# Extract the latest row_id of key compose_visibility and convert to UUID
-row_id=$(../../.build/kwil-cli database call key:compose_visibility only_latest:true --action=get_metadata -n=primitive_stream_a --output json | jq -r '.result[0].row_id | @sh')
+wallet=$(../../.build/kwil-cli account id --private-key 0000000000000000000000000000000000000000000000000000000000000123)
+../../.build/kwil-cli database call wallet:$wallet --action=is_wallet_allowed_to_read -n=primitive_stream_a
+```
+
+disable latest `read_visibility`
+```shell
+# Extract the latest row_id of key read_visibility and convert to UUID
+row_id=$(../../.build/kwil-cli database call key:read_visibility only_latest:true --action=get_metadata -n=primitive_stream_a --output json | jq -r '.result[0].row_id | @sh')
 uuid=$(python3 -c 'import uuid, sys; print(uuid.UUID(bytes=bytes(map(int, sys.argv[1].split()))).urn[9:])' "$row_id")
 
 # Disable the metadata
@@ -73,4 +79,10 @@ insert record
 get index
 ```shell
 ../../.build/kwil-cli database call --action=get_index date_from:2021-01-01 date_to:2021-01-02 frozen_at: -n=primitive_stream_a
+```
+
+try read when it's private (make sure you set to private read access)
+```shell
+owner=$(../../.build/kwil-cli account id)
+../../.build/kwil-cli database call --action=get_index date_from:2021-01-01 date_to:2021-01-02 frozen_at: -n=primitive_stream_a --private-key 0000000000000000000000000000000000000000000000000000000000000123 --owner $owner
 ```
