@@ -4,6 +4,7 @@
 package realtime
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/kwilteam/kwil-db/common"
@@ -40,6 +41,18 @@ func (r *RealtimeExtension) Initialize(ctx *precompiles.DeploymentContext, servi
 func (r *RealtimeExtension) Call(scoper *precompiles.ProcedureContext, app *common.App, method string, inputs []any) ([]any, error) {
 	r.valuesMu.RLock()
 	defer r.valuesMu.RUnlock()
+
+	// since this is non-detemrinistic, we want to be 100% certain that we are not calling
+	// this in a blockchain tx, and that it is only being called in a read-only tx.
+	dbAccesser, ok := app.DB.(sql.AccessModer)
+	if !ok {
+		// this should never error. This is a common type asserting we do internally.
+		// If this error returns, then the Kwil team has introduced a bug into the core kwild code.
+		return nil, fmt.Errorf("unexpected error in realtime extension.")
+	}
+	if dbAccesser.AccessMode() != sql.ReadOnly {
+		return nil, fmt.Errorf("realtime extension can only be used in read-only txs.")
+	}
 
 	// TODO: perform queries to get the latest values
 	// for now, I am assuming the results are held in "results"
