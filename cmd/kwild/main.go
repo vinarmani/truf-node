@@ -10,12 +10,22 @@ import (
 	"github.com/truflation/tsn-db/internal/extensions/ed25519authenticator"
 	"github.com/truflation/tsn-db/internal/extensions/mathutil"
 	"github.com/truflation/tsn-db/internal/extensions/primitive_stream"
+	"github.com/truflation/tsn-db/internal/extensions/realtime"
 	"github.com/truflation/tsn-db/internal/extensions/whitelist"
 
 	"github.com/kwilteam/kwil-db/cmd/kwild/root"
 )
 
 func main() {
+	realTime := realtime.NewRealtimeExtension()
+	if err := precompiles.RegisterPrecompile("realtime", realTime.Initialize); err != nil {
+		panic(err)
+	}
+
+	// TODO: realTime can now be passed elsewhere to other code to add realtime data.
+	// below is an example of adding some data for a specific dbid:
+	realTime.SetValue("xdbid", 100)
+
 	if err := root.RootCmd().Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
