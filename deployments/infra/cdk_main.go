@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	domain_utils "github.com/truflation/tsn-db/infra/lib/domain_utils"
+	system_contract "github.com/truflation/tsn-db/infra/lib/system-contract"
 	"os"
 	"strconv"
 
@@ -114,7 +116,26 @@ func TsnDBCdkStack(scope constructs.Construct, id string, props *CdkStackProps) 
 	// Cloudfront for the gateway instance
 	// We use cloudfront to handle TLS termination. The certificate is created in a separate stack in us-east-1.
 	// We disable caching.
-	kwil_gateway.CloudfrontForEc2Instance(stack, kgwInstance.Instance.InstancePublicDnsName(), domain, hostedZone, props.cert)
+	cf := kwil_gateway.CloudfrontForEc2Instance(stack, kgwInstance.Instance.InstancePublicDnsName(), domain, hostedZone, props.cert)
+
+	// Deploy the system contract everytime the hash changes
+	deployContract := system_contract.DeployContractResource(stack, system_contract.DeployContractResourceOptions{
+		SystemContractPath: jsii.String("../../internal/contracts/system_contract.kf"),
+		PrivateKey:         config.GetEnvironmentVariables().PrivateKey,
+		ProviderUrl:        jsii.String(fmt.Sprintf("https://%s", *domain)),
+		// so that every time the hash changes, the contract is deployed again
+		Hash: tsnImageAsset.AssetHash(),
+	})
+
+	// contract must be the last thing done here. Otherwise it might try to deploy the contract before the instances are ready
+	var contractDependencies []constructs.IDependable
+	for _, node := range tsnCluster.Nodes {
+		contractDependencies = append(contractDependencies, node.Instance)
+	}
+	contractDependencies = append(contractDependencies, kgwInstance.Instance)
+	contractDependencies = append(contractDependencies, cf)
+
+	deployContract.Node().AddDependency(contractDependencies...)
 
 	// ## Output info
 	// Public ip of each TSN node

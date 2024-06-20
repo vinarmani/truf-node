@@ -6,9 +6,25 @@ tasks:
       - task -l
 
   build:
-    desc: Build kwild binary
+    desc: Build kwil binaries
     cmds:
-      - go build -o ./.build/kwild ./cmd/kwild/main.go
+      - task build:kwild
+      - task build:kwil-cli
+
+  build:kwild:
+    cmds:
+      - ./scripts/build/binary kwild
+    env:
+      TARGET: ./.build
+      SOURCE: ./cmd/kwild/main.go
+
+  build:kwil-cli:
+    cmds:
+      - ./scripts/build/binary kwil-cli
+    env:
+      TARGET: ./.build
+      SOURCE: ./cmd/kwil-cli/main.go
+
 
   build:debug:
     desc: Build kwild binary with debug flags
