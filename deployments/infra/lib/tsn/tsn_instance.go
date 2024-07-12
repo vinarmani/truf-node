@@ -10,6 +10,7 @@ import (
 	"github.com/kwilteam/kwil-db/core/utils/random"
 	"github.com/truflation/tsn-db/infra/config"
 	peer2 "github.com/truflation/tsn-db/infra/lib/kwil-network/peer"
+	"github.com/truflation/tsn-db/infra/lib/utils"
 )
 
 type newTSNInstanceInput struct {
@@ -47,18 +48,20 @@ func NewTSNInstance(scope constructs.Construct, input newTSNInstanceInput) TSNIn
 
 	defaultInstanceUser := jsii.String("ec2-user")
 
-	tsnConfigZipPath := "/home/ec2-user/tsn-node-config.zip"
-	tsnComposePath := "/home/ec2-user/docker-compose.yaml"
-	tsnConfigImagePath := "/home/ec2-user/deployments/tsn-config.dockerfile"
+	initAssetsDir := "/home/ec2-user/init-assets/"
+	mountDataDir := "/data/"
+	tsnConfigZipFile := "tsn-node-config.zip"
+	tsnComposeFile := "docker-compose.yaml"
+	tsnConfigImageFile := "deployments/tsn-config.dockerfile"
 
 	initData := awsec2.CloudFormationInit_FromElements(
-		awsec2.InitFile_FromExistingAsset(jsii.String(tsnComposePath), input.TSNDockerComposeAsset, &awsec2.InitFileOptions{
+		awsec2.InitFile_FromExistingAsset(jsii.String(initAssetsDir+tsnComposeFile), input.TSNDockerComposeAsset, &awsec2.InitFileOptions{
 			Owner: defaultInstanceUser,
 		}),
-		awsec2.InitFile_FromExistingAsset(jsii.String(tsnConfigZipPath), input.TSNConfigAsset, &awsec2.InitFileOptions{
+		awsec2.InitFile_FromExistingAsset(jsii.String(initAssetsDir+tsnConfigZipFile), input.TSNConfigAsset, &awsec2.InitFileOptions{
 			Owner: defaultInstanceUser,
 		}),
-		awsec2.InitFile_FromExistingAsset(jsii.String(tsnConfigImagePath), input.TSNConfigImageAsset, &awsec2.InitFileOptions{
+		awsec2.InitFile_FromExistingAsset(jsii.String(initAssetsDir+tsnConfigImageFile), input.TSNConfigImageAsset, &awsec2.InitFileOptions{
 			Owner: defaultInstanceUser,
 		}),
 	)
@@ -94,6 +97,11 @@ func NewTSNInstance(scope constructs.Construct, input newTSNInstanceInput) TSNIn
 		},
 	})
 
+	instance.AddUserData(
+		utils.MountVolumeToPathAndPersist("nvme1n1", "/data")...,
+	)
+	instance.AddUserData(utils.MoveToPath(initAssetsDir+"*", mountDataDir))
+
 	// Create Elastic Ip association instead of attaching, so dependency is not circular
 	awsec2.NewCfnEIPAssociation(scope, jsii.String("TSN-Instance-ElasticIpAssociation-"+input.Id), &awsec2.CfnEIPAssociationProps{
 		InstanceId:   instance.InstanceId(),
@@ -113,9 +121,10 @@ func NewTSNInstance(scope constructs.Construct, input newTSNInstanceInput) TSNIn
 		Instance:           instance,
 		Region:             input.Vpc.Env().Region,
 		TsnImageAsset:      input.TSNDockerImageAsset,
-		TsnConfigZipPath:   &tsnConfigZipPath,
-		TsnComposePath:     &tsnComposePath,
-		TsnConfigImagePath: &tsnConfigImagePath,
+		DataDirPath:        jsii.String(mountDataDir),
+		TsnConfigZipPath:   jsii.String(mountDataDir + tsnConfigZipFile),
+		TsnComposePath:     jsii.String(mountDataDir + tsnComposeFile),
+		TsnConfigImagePath: jsii.String(mountDataDir + tsnConfigImageFile),
 	})
 
 	return node

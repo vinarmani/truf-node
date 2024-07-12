@@ -18,6 +18,7 @@ type AddStartupScriptsOptions struct {
 	TsnConfigImagePath *string
 	TsnConfigZipPath   *string
 	TsnComposePath     *string
+	DataDirPath        *string
 	Region             *string
 }
 
@@ -26,8 +27,9 @@ func AddTsnDbStartupScriptsToInstance(scope constructs.Construct, options AddSta
 
 	tsnImageAsset := options.TsnImageAsset
 
-	tsnConfigExtractedPath := "/home/ec2-user/tsn-node-config"
-	tsnConfigRelativeToCompose := "./tsn-node-config"
+	tsnConfigExtractedPath := *options.DataDirPath + "tsn"
+	postgresDataPath := *options.DataDirPath + "postgres"
+	tsnConfigRelativeToCompose := "./tsn"
 
 	// create a list of persistent peers
 	var persistentPeersList []*string
@@ -44,6 +46,8 @@ func AddTsnDbStartupScriptsToInstance(scope constructs.Construct, options AddSta
 		ExternalConfigPath: jsii.String(tsnConfigRelativeToCompose),
 		PersistentPeers:    persistentPeers,
 		ExternalAddress:    jsii.String("http://" + *options.currentPeer.GetP2PAddress(false)),
+		TsnVolume:          jsii.String(tsnConfigExtractedPath),
+		PostgresVolume:     jsii.String(postgresDataPath),
 	}
 
 	// we could improve this script by adding a ResourceSignal, which would signalize to CDK that the Instance is ready
@@ -125,6 +129,8 @@ type TSNEnvConfig struct {
 	PersistentPeers *string `env:"PERSISTENT_PEERS"`
 	// comma separated list of peers, used for p2p communication
 	ExternalAddress *string `env:"EXTERNAL_ADDRESS"`
+	TsnVolume       *string `env:"TSN_VOLUME"`
+	PostgresVolume  *string `env:"POSTGRES_VOLUME"`
 }
 
 // GetDict returns a map of the environment variables and their values

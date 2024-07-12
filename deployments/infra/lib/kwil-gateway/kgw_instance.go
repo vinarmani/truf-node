@@ -90,7 +90,7 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 	// comes with pre-installed cloud init requirements
 	AWSLinux2MachineImage := awsec2.MachineImage_LatestAmazonLinux2(nil)
 	instance := awsec2.NewInstance(scope, jsii.String("KGWInstance"+randomBit), &awsec2.InstanceProps{
-		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_NANO),
+		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_SMALL),
 		Init:         initData,
 		MachineImage: AWSLinux2MachineImage,
 		Vpc:          input.Vpc,
@@ -99,15 +99,6 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 		},
 		SecurityGroup: instanceSG,
 		KeyPair:       awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KeyPair"), keyPair),
-		BlockDevices: &[]*awsec2.BlockDevice{
-			{
-				DeviceName: jsii.String("/dev/sda1"),
-				Volume: awsec2.BlockDeviceVolume_Ebs(jsii.Number(50), &awsec2.EbsDeviceOptions{
-					DeleteOnTermination: jsii.Bool(true),
-					Encrypted:           jsii.Bool(false),
-				}),
-			},
-		},
 	})
 
 	AddKwilGatewayStartupScriptsToInstance(AddKwilGatewayStartupScriptsOptions{
