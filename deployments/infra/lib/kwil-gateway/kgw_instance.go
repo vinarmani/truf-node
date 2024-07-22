@@ -1,9 +1,11 @@
 package kwil_gateway
 
 import (
+	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awssqs"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/kwilteam/kwil-db/core/utils/random"
@@ -61,6 +63,20 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 		jsii.String("Allow ssh."),
 		jsii.Bool(false))
 
+	// kgw metrics sqs queue
+	metricsSQSTopic := awssqs.NewQueue(scope, jsii.String("KGWMetricsQueue"), &awssqs.QueueProps{
+		// standard queue, because at-least-once delivery is acceptable for metrics
+		// visibility timeout of 30 secs because it shouldn't take long to process a single message after dequeue
+		VisibilityTimeout: awscdk.Duration_Seconds(jsii.Number(30)),
+		// Receive Message Wait Time: 20 seconds because it permits long polling. For metrics, we can afford to wait a bit longer.
+		// TODO: Add a dead-letter queue for metrics queue
+		DeadLetterQueue: nil,
+		// we don't need ordering here
+		Fifo: jsii.Bool(false),
+		// we don't need deduplication for metrics
+		ContentBasedDeduplication: jsii.Bool(false),
+	})
+
 	// Creating in private subnet only when deployment cluster in PROD stage.
 	subnetType := awsec2.SubnetType_PUBLIC
 	//if config.DeploymentStage(scope) == config.DeploymentStage_PROD {
@@ -101,10 +117,14 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 		KeyPair:       awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KeyPair"), keyPair),
 	})
 
+	// Allow instance to send messages to metrics queue
+	metricsSQSTopic.GrantSendMessages(instance)
+
 	AddKwilGatewayStartupScriptsToInstance(AddKwilGatewayStartupScriptsOptions{
 		Instance:      instance,
 		kgwBinaryPath: kgwBinaryPath,
 		Config:        input.Config,
+		MetricsSQS:    metricsSQSTopic,
 	})
 
 	return KGWInstance{

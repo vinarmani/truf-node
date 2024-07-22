@@ -3,6 +3,7 @@ package kwil_gateway
 import (
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awssqs"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/truflation/tsn-db/infra/lib/utils"
 )
@@ -11,6 +12,7 @@ type AddKwilGatewayStartupScriptsOptions struct {
 	Instance      awsec2.Instance
 	kgwBinaryPath *string
 	Config        KGWConfig
+	MetricsSQS    awssqs.IQueue // TODO use the metrics queue to send metrics using vector
 }
 
 func AddKwilGatewayStartupScriptsToInstance(options AddKwilGatewayStartupScriptsOptions) {
