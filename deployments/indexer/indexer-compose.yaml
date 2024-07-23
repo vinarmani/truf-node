@@ -15,7 +15,7 @@ services:
 
   indexer-postgres:
     image: "postgres:latest"
-    restart: on-failure
+    restart: unless-stopped
     hostname: indexer-postgres
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
@@ -29,17 +29,17 @@ services:
       retries: 5
     # persis data
     volumes:
-        - ${POSTGRES_VOLUME:-data-indexer}:/var/lib/postgresql/data
+      - ${POSTGRES_VOLUME:-data-indexer}:/var/lib/postgresql/data
     networks:
       - tsn-network
   indexer:
-    restart: on-failure
+    restart: unless-stopped
     build:
       dockerfile: indexer.dockerfile
-      args:
-        NODE_COMETBFT_ENDPOINT: ${NODE_COMETBFT_ENDPOINT:?NODE_COMETBFT_ENDPOINT is required}
-        KWIL_PG_CONN: ${KWIL_PG_CONN:?KWIL_PG_CONN is required}
-        INDEXER_PG_CONN: "postgresql://postgres:postgres@indexer-postgres:5432/indexer?sslmode=disable"
+    environment:
+      NODE_COMETBFT_ENDPOINT: ${NODE_COMETBFT_ENDPOINT:?NODE_COMETBFT_ENDPOINT is required}
+      KWIL_PG_CONN: ${KWIL_PG_CONN:?KWIL_PG_CONN is required}
+      INDEXER_PG_CONN: "postgresql://postgres:postgres@indexer-postgres:5432/indexer?sslmode=disable"
     ports:
       - "1337:1337"
     networks:
@@ -47,6 +47,11 @@ services:
     depends_on:
       indexer-postgres:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:1337/v0/swagger" ]
+      interval: 5s
+      retries: 5
+      timeout: 5s
 
 networks:
   tsn-network:
