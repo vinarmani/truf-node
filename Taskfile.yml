@@ -109,3 +109,10 @@ tasks:
     desc: Run coverage
     cmds:
       - bash ./scripts/coverage.sh
+
+  get-genesis:
+    desc: Get genesis file from tsn-node-operator repo
+    dotenv: ['.env']
+    cmds:
+      - |
+        curl -f -H "Authorization: token ${READ_TOKEN}" --create-dirs -o ./deployments/network/staging/genesis.json https://raw.githubusercontent.com/truflation/tsn-node-operator/main/configs/network/staging/genesis.json
