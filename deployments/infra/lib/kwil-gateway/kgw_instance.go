@@ -6,7 +6,6 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
-	"github.com/kwilteam/kwil-db/core/utils/random"
 	"github.com/truflation/tsn-db/infra/config"
 	"github.com/truflation/tsn-db/infra/lib/tsn"
 	"github.com/truflation/tsn-db/infra/lib/utils"
@@ -25,6 +24,8 @@ type NewKGWInstanceInput struct {
 	KGWBinaryAsset utils.S3Object
 	Vpc            awsec2.IVpc
 	Config         KGWConfig
+	// Controls the restart of the instance when the hash changes.
+	IdHash string
 }
 
 type KGWInstance struct {
@@ -85,11 +86,9 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 			}),
 	)
 
-	randomBit := random.String(4)
-
 	// comes with pre-installed cloud init requirements
 	AWSLinux2MachineImage := awsec2.MachineImage_LatestAmazonLinux2(nil)
-	instance := awsec2.NewInstance(scope, jsii.String("KGWInstance"+randomBit), &awsec2.InstanceProps{
+	instance := awsec2.NewInstance(scope, jsii.String("KGWInstance"+input.IdHash), &awsec2.InstanceProps{
 		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_SMALL),
 		Init:         initData,
 		MachineImage: AWSLinux2MachineImage,

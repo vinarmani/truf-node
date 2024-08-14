@@ -1,11 +1,12 @@
 package config
 
 import (
+	"github.com/aws/constructs-go/constructs/v10"
 	"os"
 	"reflect"
 )
 
-type EnvironmentVariables struct {
+type MainEnvironmentVariables struct {
 	KwilAdminBinPath string `env:"KWIL_ADMIN_BIN_PATH" required:"true"`
 	CdkDocker        string `env:"CDK_DOCKER" required:"true"`
 	ChainId          string `env:"CHAIN_ID" required:"true"`
@@ -13,8 +14,25 @@ type EnvironmentVariables struct {
 	GenesisPath      string `env:"GENESIS_PATH" required:"true"`
 }
 
-func GetEnvironmentVariables() EnvironmentVariables {
-	var env EnvironmentVariables
+type AutoStackEnvironmentVariables struct {
+	// when this hash changes, all instances will be redeployed
+	RestartHash string `env:"RESTART_HASH"`
+}
+
+type ConfigStackEnvironmentVariables struct {
+	// comma separated list of private keys for the nodes
+	NodePrivateKeys string `env:"NODE_PRIVATE_KEYS" required:"true"`
+	GenesisPath     string `env:"GENESIS_PATH" required:"true"`
+}
+
+func GetEnvironmentVariables[T any](scope constructs.Construct) T {
+	var env T
+
+	// only run if we are synthesizing the stack
+	if !IsStackInSynthesis(scope) {
+		return env
+	}
+
 	t := reflect.TypeOf(env)
 	v := reflect.ValueOf(&env).Elem()
 
