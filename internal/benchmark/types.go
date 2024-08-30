@@ -9,14 +9,18 @@ import (
 type (
 	ProcedureEnum string
 	BenchmarkCase struct {
-		Depth      int
-		Days       int
-		Visibility util.VisibilityEnum
-		Procedure  ProcedureEnum
-		Samples    int
+		QtyStreams      int
+		BranchingFactor int
+		Days            []int
+		Visibility      util.VisibilityEnum
+		Samples         int
+		Procedures      []ProcedureEnum
 	}
 	Result struct {
 		Case          BenchmarkCase
+		MaxDepth      int
+		Procedure     ProcedureEnum
+		DaysQueried   int
 		CaseDurations []time.Duration
 	}
 )
