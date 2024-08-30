@@ -69,12 +69,8 @@ func createStateMachine(scope constructs.Construct, input CreateStateMachineInpu
 		// pass the bucket and key to the lambda function as a json object
 		Payload: awsstepfunctions.TaskInput_FromObject(
 			&map[string]interface{}{
-				"bucket": input.ResultsBucket.BucketName(),
-				"key": awsstepfunctions.JsonPath_Format(
-					jsii.String("{}/{}.csv"),
-					input.ResultsBucket.BucketName(),
-					awsstepfunctions.JsonPath_StringAt(jsii.String("$.timestamp")),
-				),
+				"bucket":    input.ResultsBucket.BucketName(),
+				"keyPrefix": awsstepfunctions.JsonPath_StringAt(jsii.String("$.timestamp")),
 			},
 		),
 	})
@@ -109,6 +105,8 @@ func createStateMachine(scope constructs.Construct, input CreateStateMachineInpu
 	stateMachine := awsstepfunctions.NewStateMachine(scope, jsii.String("BenchmarkStateMachine"), &awsstepfunctions.StateMachineProps{
 		DefinitionBody: awsstepfunctions.DefinitionBody_FromChainable(benchmarkWorkflowChain),
 		Timeout:        awscdk.Duration_Minutes(jsii.Number(30)),
+		// <stackname>-benchmark
+		StateMachineName: jsii.String(fmt.Sprintf("%s-benchmark", *awscdk.Aws_STACK_NAME())),
 	})
 
 	return stateMachine
