@@ -51,6 +51,7 @@ type RunSingleTestInput struct {
 
 // runSingleTest runs a single test for the given input and returns the result.
 func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error) {
+	// we're querying the index-0 stream because this is the root stream
 	nthDbId := utils.GenerateDBID(getStreamId(0).String(), input.Platform.Deployer)
 	fromDate := fixedDate.AddDate(0, 0, -input.Days).Format("2006-01-02")
 	toDate := fixedDate.Format("2006-01-02")
