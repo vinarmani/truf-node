@@ -171,9 +171,10 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 				awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceId")),
 			),
 			"DocumentName": jsii.String("AWS-RunShellScript"),
+			// 6 hours
+			"TimeoutSeconds": jsii.Number(6 * 60 * 60),
 			"Parameters": map[string]interface{}{
-				// 6 hours
-				"timeoutSeconds": awsstepfunctions.JsonPath_Array(jsii.Sprintf("%d", 6*60*60)),
+				"executionTimeout": awsstepfunctions.JsonPath_Array(jsii.Sprintf("%d", 6*60*60)),
 				"commands": awsstepfunctions.JsonPath_Array(
 					awsstepfunctions.JsonPath_Format(
 						jsii.String("aws s3 cp s3://{}/{} {}"),
