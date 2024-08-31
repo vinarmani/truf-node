@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
@@ -96,6 +97,11 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 			QtyStreams:      benchmarkCase.QtyStreams,
 			BranchingFactor: benchmarkCase.BranchingFactor,
 		})
+
+		// we can't run the benchmark if the tree is too deep, due to postgreSQL limitations
+		if tree.MaxDepth > maxDepth {
+			return fmt.Errorf("tree max depth (%d) is greater than max depth (%d)", tree.MaxDepth, maxDepth)
+		}
 
 		results, err := runBenchmark(ctx, platform, benchmarkCase, tree)
 		if err != nil {
