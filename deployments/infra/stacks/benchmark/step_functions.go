@@ -186,7 +186,7 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 					jsii.String("unzip -o "+input.LaunchTemplateOutput.BenchmarkBinaryZipPath+" -d /home/ec2-user/benchmark"),
 					jsii.String("chmod +x /home/ec2-user/benchmark/benchmark"),
 					awsstepfunctions.JsonPath_Format(
-						jsii.String("RESULTS_PATH=/tmp/results.csv /home/ec2-user/benchmark/benchmark && aws s3 cp /tmp/results.csv s3://{}/{}_{}.csv"),
+						jsii.String("RESULTS_PATH=/tmp/results.csv /home/ec2-user/benchmark/benchmark LOG_RESULTS=false && aws s3 cp /tmp/results.csv s3://{}/{}_{}.csv"),
 						input.ResultsBucket.BucketName(),
 						awsstepfunctions.JsonPath_StringAt(jsii.String("$.timestamp")),
 						awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceType")),
