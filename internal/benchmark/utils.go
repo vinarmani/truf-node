@@ -12,23 +12,15 @@ import (
 
 	"github.com/cockroachdb/apd/v3"
 	"github.com/kwilteam/kwil-db/common"
-	kwiltypes "github.com/kwilteam/kwil-db/core/types"
-	"github.com/kwilteam/kwil-db/parse"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/truflation/tsn-db/internal/benchmark/benchexport"
-	"github.com/truflation/tsn-db/internal/contracts"
 	"github.com/truflation/tsn-sdk/core/util"
 	"golang.org/x/exp/constraints"
 )
 
-// getStreamId generates a StreamId based on the given depth.
-// For depth 0, it returns the RootStreamId, as its a primitive stream
-// For other depths, it generates a new StreamId with a composed prefix.
-func getStreamId(depth int) *util.StreamId {
-	if depth == 0 {
-		return &RootStreamId
-	}
-	id := util.GenerateStreamId(ComposedStreamPrefix + "_" + strconv.Itoa(depth))
+// getStreamId generates a unique StreamId for a stream at a given index.
+func getStreamId(index int) *util.StreamId {
+	id := util.GenerateStreamId("test_stream_" + strconv.Itoa(index))
 	return &id
 }
 
@@ -63,8 +55,15 @@ func executeStreamProcedure(ctx context.Context, platform *kwilTesting.Platform,
 func printResults(results []Result) {
 	fmt.Println("Benchmark Results:")
 	for _, r := range results {
-		fmt.Printf("Depth: %d, Days: %d, Visibility: %s, Procedure: %s\n",
-			r.Case.Depth, r.Case.Days, visibilityToString(r.Case.Visibility), r.Case.Procedure)
+		fmt.Printf(
+			"Qty Streams: %d, Branching Factor: %d, Days Queried: %d, Visibility: %s, Procedure: %s, Samples: %d\n",
+			r.Case.QtyStreams,
+			r.Case.BranchingFactor,
+			r.DaysQueried,
+			visibilityToString(r.Case.Visibility),
+			string(r.Procedure),
+			r.Case.Samples,
+		)
 		fmt.Printf("  Mean Duration: %v\n", Average(r.CaseDurations))
 		fmt.Printf("  Min Duration: %v\n", slices.Min(r.CaseDurations))
 		fmt.Printf("  Max Duration: %v\n", slices.Max(r.CaseDurations))
@@ -84,11 +83,13 @@ func saveResults(results []Result, filePath string) error {
 	savedResults := make([]benchexport.SavedResults, len(results))
 	for i, r := range results {
 		savedResults[i] = benchexport.SavedResults{
-			Procedure:  string(r.Case.Procedure),                // procedure
-			Depth:      r.Case.Depth,                            // depth
-			Days:       r.Case.Days,                             // n_of_dates
-			DurationMs: Average(r.CaseDurations).Milliseconds(), // duration_ms
-			Visibility: visibilityToString(r.Case.Visibility),   // visibility
+			Procedure:       string(r.Procedure), // procedure
+			Samples:         r.Case.Samples,
+			BranchingFactor: r.Case.BranchingFactor,                  // depth
+			QtyStreams:      r.Case.QtyStreams,                       // n_of_streams
+			Days:            r.DaysQueried,                           // n_of_dates
+			DurationMs:      Average(r.CaseDurations).Milliseconds(), // duration_ms
+			Visibility:      visibilityToString(r.Case.Visibility),   // visibility
 		}
 	}
 	// Save as CSV
@@ -127,30 +128,6 @@ func visibilityToString(visibility util.VisibilityEnum) string {
 	default:
 		return "Unknown"
 	}
-}
-
-// getSchemas generates a slice of Schema pointers based on the given depth.
-// It includes the primary stream schema and composed stream schemas up to the specified depth.
-func getSchemas(depth int) []*kwiltypes.Schema {
-	var schemas []*kwiltypes.Schema
-
-	primaryStreamSchema, err := parse.Parse(contracts.PrimitiveStreamContent)
-	if err != nil {
-		panic(err) // panic is ok, this is a test
-	}
-	primaryStreamSchema.Name = RootStreamId.String()
-	schemas = append(schemas, primaryStreamSchema)
-
-	for i := 1; i <= depth; i++ {
-		composedStreamSchema, err := parse.Parse(contracts.ComposedStreamContent)
-		if err != nil {
-			panic(err) // panic is ok, this is a test
-		}
-		composedStreamSchema.Name = getStreamId(i).String()
-		schemas = append(schemas, composedStreamSchema)
-	}
-
-	return schemas
 }
 
 // MustNewEthereumAddressFromString creates an EthereumAddress from a string,

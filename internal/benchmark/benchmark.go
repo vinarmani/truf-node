@@ -2,63 +2,77 @@ package benchmark
 
 import (
 	"context"
-	"slices"
+	"fmt"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
-	"github.com/kwilteam/kwil-db/testing"
+
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/truflation/tsn-db/internal/benchmark/trees"
 	"github.com/truflation/tsn-sdk/core/util"
 )
 
-// Benchmark case generation and execution
-func generateBenchmarkCases(input RunBenchmarkInput) []BenchmarkCase {
-	var cases []BenchmarkCase
-	procedures := []ProcedureEnum{ProcedureGetRecord, ProcedureGetIndex, ProcedureGetChangeIndex}
+func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c BenchmarkCase, tree trees.Tree) ([]Result, error) {
+	var results []Result
 
-	for _, depth := range input.Depths {
-		for _, day := range input.Days {
-			for _, procedure := range procedures {
-				cases = append(cases, BenchmarkCase{
-					Depth:      depth,
-					Days:       day,
-					Visibility: input.Visibility,
-					Procedure:  procedure,
-					Samples:    samplesPerCase,
-				})
+	err := setupSchemas(ctx, platform, SetupSchemasInput{
+		BenchmarkCase: c,
+		Tree:          tree,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, day := range c.Days {
+		for _, procedure := range c.Procedures {
+			result, err := runSingleTest(ctx, RunSingleTestInput{
+				Platform:  platform,
+				Case:      c,
+				Days:      day,
+				Procedure: procedure,
+				Tree:      tree,
+			})
+			if err != nil {
+				return nil, err
 			}
+			results = append(results, result)
 		}
 	}
-	return cases
-}
 
-func runBenchmarkCases(ctx context.Context, platform *testing.Platform, cases []BenchmarkCase) ([]Result, error) {
-	results := make([]Result, len(cases))
-	for i, c := range cases {
-		result, err := runBenchmarkCase(ctx, platform, c)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = result
-	}
 	return results, nil
 }
 
-func runBenchmarkCase(ctx context.Context, platform *testing.Platform, c BenchmarkCase) (Result, error) {
-	nthDbId := utils.GenerateDBID(getStreamId(c.Depth).String(), platform.Deployer)
-	fromDate := fixedDate.AddDate(0, 0, -c.Days).Format("2006-01-02")
+type RunSingleTestInput struct {
+	Platform  *kwilTesting.Platform
+	Case      BenchmarkCase
+	Days      int
+	Procedure ProcedureEnum
+	Tree      trees.Tree
+}
+
+// runSingleTest runs a single test for the given input and returns the result.
+func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error) {
+	// we're querying the index-0 stream because this is the root stream
+	nthDbId := utils.GenerateDBID(getStreamId(0).String(), input.Platform.Deployer)
+	fromDate := fixedDate.AddDate(0, 0, -input.Days).Format("2006-01-02")
 	toDate := fixedDate.Format("2006-01-02")
 
-	result := Result{Case: c, CaseDurations: make([]time.Duration, c.Samples)}
+	result := Result{
+		Case:          input.Case,
+		Procedure:     input.Procedure,
+		DaysQueried:   input.Days,
+		MaxDepth:      input.Tree.MaxDepth,
+		CaseDurations: make([]time.Duration, input.Case.Samples),
+	}
 
-	for i := 0; i < c.Samples; i++ {
+	for i := 0; i < input.Case.Samples; i++ {
 		start := time.Now()
 		args := []any{fromDate, toDate, nil}
-		if c.Procedure == ProcedureGetChangeIndex {
+		if input.Procedure == ProcedureGetChangeIndex {
 			args = append(args, 1) // change index accept an additional arg: $days_interval
 		}
 		// we read using the reader address to be sure visibility is tested
-		if err := executeStreamProcedure(ctx, platform, nthDbId, string(c.Procedure), args, readerAddress.Bytes()); err != nil {
+		if err := executeStreamProcedure(ctx, input.Platform, nthDbId, string(input.Procedure), args, readerAddress.Bytes()); err != nil {
 			return Result{}, err
 		}
 		result.CaseDurations[i] = time.Since(start)
@@ -70,34 +84,32 @@ func runBenchmarkCase(ctx context.Context, platform *testing.Platform, c Benchma
 type RunBenchmarkInput struct {
 	ResultPath string
 	Visibility util.VisibilityEnum
-	Depths     []int
+	QtyStreams int
 	Days       []int
+	Samples    int
 }
 
-func runBenchmark(input RunBenchmarkInput) func(ctx context.Context, platform *kwilTesting.Platform) error {
+func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
-		benchCases := generateBenchmarkCases(input)
-
-		deployer := MustNewEthereumAddressFromString("0x0000000000000000000000000000000200000000")
 		platform.Deployer = deployer.Bytes()
-		// get max depth based on the cases
-		maxDepth := slices.MaxFunc(benchCases, func(a, b BenchmarkCase) int {
-			return a.Depth - b.Depth
-		})
-		// get schemas based on the max depth
-		schemas := getSchemas(maxDepth.Depth)
 
-		if err := setupSchemas(ctx, platform, schemas, input.Visibility); err != nil {
-			return err
+		tree := trees.NewTree(trees.NewTreeInput{
+			QtyStreams:      benchmarkCase.QtyStreams,
+			BranchingFactor: benchmarkCase.BranchingFactor,
+		})
+
+		// we can't run the benchmark if the tree is too deep, due to postgreSQL limitations
+		if tree.MaxDepth > maxDepth {
+			return fmt.Errorf("tree max depth (%d) is greater than max depth (%d)", tree.MaxDepth, maxDepth)
 		}
 
-		results, err := runBenchmarkCases(ctx, platform, benchCases)
+		results, err := runBenchmark(ctx, platform, benchmarkCase, tree)
 		if err != nil {
 			return err
 		}
 
 		printResults(results)
 
-		return saveResults(results, input.ResultPath)
+		return saveResults(results, resultPath)
 	}
 }
