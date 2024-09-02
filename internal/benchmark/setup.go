@@ -9,35 +9,51 @@ import (
 	"github.com/kwilteam/kwil-db/common"
 	kwiltypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/kwilteam/kwil-db/core/utils"
+	"github.com/kwilteam/kwil-db/parse"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/truflation/tsn-db/internal/benchmark/trees"
+	"github.com/truflation/tsn-db/internal/contracts"
 	"github.com/truflation/tsn-sdk/core/types"
 	"github.com/truflation/tsn-sdk/core/util"
 )
 
-type setupSchemaInput struct {
-	visibility util.VisibilityEnum
-	depth      int
-	days       int
-	owner      util.EthereumAddress
+type SetupSchemasInput struct {
+	BenchmarkCase BenchmarkCase
+	Tree          trees.Tree
 }
 
 // Schema setup functions
 func setupSchemas(
 	ctx context.Context,
 	platform *kwilTesting.Platform,
-	schemas []*kwiltypes.Schema,
-	visibility util.VisibilityEnum,
+	input SetupSchemasInput,
 ) error {
 	deployerAddress := MustNewEthereumAddressFromBytes(platform.Deployer)
 
-	for i, schema := range schemas {
+	for _, node := range input.Tree.Nodes {
+		var schema *kwiltypes.Schema
+		var err error
+		if node.IsLeaf {
+			schema, err = parse.Parse(contracts.PrimitiveStreamContent)
+			if err != nil {
+				return err
+			}
+		} else {
+			schema, err = parse.Parse(contracts.ComposedStreamContent)
+			if err != nil {
+				return err
+			}
+		}
+
+		schema.Name = getStreamId(node.Index).String()
+
 		if err := createAndInitializeSchema(ctx, platform, schema); err != nil {
 			return err
 		}
 
 		if err := setupSchema(ctx, platform, schema, setupSchemaInput{
-			visibility: visibility,
-			depth:      i,
+			visibility: input.BenchmarkCase.Visibility,
+			treeNode:   node,
 			days:       380, // to be sure we have more days to calculate change index
 			owner:      deployerAddress,
 		}); err != nil {
@@ -69,20 +85,28 @@ func createAndInitializeSchema(ctx context.Context, platform *kwilTesting.Platfo
 	return err
 }
 
+type setupSchemaInput struct {
+	visibility util.VisibilityEnum
+	days       int
+	owner      util.EthereumAddress
+	readerDbid string
+	treeNode   trees.TreeNode
+}
+
 func setupSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kwiltypes.Schema, input setupSchemaInput) error {
 	dbid := utils.GenerateDBID(schema.Name, input.owner.Bytes())
-	readerStream := getStreamId(input.depth + 1)
-	dbidReader := utils.GenerateDBID(schema.Name, []byte(readerStream.String()))
 
 	if input.visibility == util.PrivateVisibility {
-		if err := setVisibilityAndWhitelist(ctx, platform, dbid, dbidReader); err != nil {
+		if err := setVisibilityAndWhitelist(ctx, platform, dbid, input.readerDbid); err != nil {
 			return err
 		}
 	}
 
-	if input.depth == 0 {
+	// if it's a leaf, then it's a primitive stream
+	if input.treeNode.IsLeaf {
 		return insertRecordsForPrimitive(ctx, platform, dbid, input.days)
 	}
+	// if it's not a leaf, then it's a composed stream
 	return setTaxonomyForComposed(ctx, platform, dbid, input)
 }
 
@@ -171,6 +195,10 @@ func insertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid, k
 	return err
 }
 
+// insertRecordsForPrimitive inserts records for a primitive stream.
+// - it generates records for the given number of days
+// - it generates a random value for each record
+// - it inserts the records into the stream
 func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platform, dbid string, days int) error {
 	fromDate := fixedDate.AddDate(0, 0, -days)
 	records := generateRecords(fromDate, fixedDate)
@@ -183,15 +211,21 @@ func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platfo
 	return nil
 }
 
+// setTaxonomyForComposed sets the taxonomy for a composed stream.
+// - it creates a new taxonomy item for each child stream
 func setTaxonomyForComposed(ctx context.Context, platform *kwilTesting.Platform, dbid string, input setupSchemaInput) error {
-	lastStreamId := getStreamId(input.depth - 1)
-	taxonomy := []types.TaxonomyItem{{
-		Weight: 1,
-		ChildStream: types.StreamLocator{
-			DataProvider: input.owner,
-			StreamId:     *lastStreamId,
-		},
-	}}
+	// Calculate parent and child stream IDs based on the new structure
+	var taxonomy []types.TaxonomyItem
+	for _, childIndex := range input.treeNode.Children {
+		childStreamId := getStreamId(childIndex)
+		taxonomy = append(taxonomy, types.TaxonomyItem{
+			Weight: 1,
+			ChildStream: types.StreamLocator{
+				DataProvider: input.owner,
+				StreamId:     *childStreamId,
+			},
+		})
+	}
 
 	var dataProvidersArg []string
 	var streamIdsArg []string

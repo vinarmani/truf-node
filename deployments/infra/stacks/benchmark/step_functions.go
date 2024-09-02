@@ -104,7 +104,7 @@ func createStateMachine(scope constructs.Construct, input CreateStateMachineInpu
 
 	stateMachine := awsstepfunctions.NewStateMachine(scope, jsii.String("BenchmarkStateMachine"), &awsstepfunctions.StateMachineProps{
 		DefinitionBody: awsstepfunctions.DefinitionBody_FromChainable(benchmarkWorkflowChain),
-		Timeout:        awscdk.Duration_Minutes(jsii.Number(30)),
+		Timeout:        awscdk.Duration_Hours(jsii.Number(6)),
 		// <stackname>-benchmark
 		StateMachineName: jsii.String(fmt.Sprintf("%s-benchmark", *awscdk.Aws_STACK_NAME())),
 	})
@@ -163,14 +163,18 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 		),
 		// include the command output in the result
 		// see shape at https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_SendCommand.html#API_SendCommand_ResponseSyntax
-		ResultPath:  jsii.String("$.commandOutput"),
-		TaskTimeout: awsstepfunctions.Timeout_Duration(awscdk.Duration_Minutes(jsii.Number(15))),
+		ResultPath: jsii.String("$.commandOutput"),
+		// the longest part is this
+		TaskTimeout: awsstepfunctions.Timeout_Duration(awscdk.Duration_Hours(jsii.Number(6))),
 		Parameters: &map[string]interface{}{
 			"InstanceIds": awsstepfunctions.JsonPath_Array(
 				awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceId")),
 			),
 			"DocumentName": jsii.String("AWS-RunShellScript"),
+			// 6 hours
+			"TimeoutSeconds": jsii.Number(6 * 60 * 60),
 			"Parameters": map[string]interface{}{
+				"executionTimeout": awsstepfunctions.JsonPath_Array(jsii.Sprintf("%d", 6*60*60)),
 				"commands": awsstepfunctions.JsonPath_Array(
 					awsstepfunctions.JsonPath_Format(
 						jsii.String("aws s3 cp s3://{}/{} {}"),
@@ -195,7 +199,9 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 	waitForRunBenchmarkTask := WaitForSendCommandSuccess(scope, WaitForSendCommandSuccessInput{
 		Command:    runBenchmarkTask,
 		InstanceId: awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceId")),
-		CommandId:  awsstepfunctions.JsonPath_StringAt(jsii.String("$.commandOutput.Command.CommandId")),
+		// it's long, so we don't need so frequent polling
+		PollingInterval: awscdk.Duration_Minutes(jsii.Number(10)),
+		CommandId:       awsstepfunctions.JsonPath_StringAt(jsii.String("$.commandOutput.Command.CommandId")),
 	})
 
 	// Terminate EC2 instance
@@ -250,9 +256,10 @@ func parallelizeWorkflows(scope constructs.Construct, workflows []awsstepfunctio
 }
 
 type WaitForSendCommandSuccessInput struct {
-	Command    awsstepfunctionstasks.CallAwsService
-	InstanceId *string
-	CommandId  *string
+	Command         awsstepfunctionstasks.CallAwsService
+	InstanceId      *string
+	PollingInterval awscdk.Duration
+	CommandId       *string
 }
 
 type WaitForInstanceToBeReadyInput struct {
@@ -330,7 +337,7 @@ func WaitForInstanceToBeReady(scope constructs.Construct, input WaitForInstanceT
 func WaitForSendCommandSuccess(scope constructs.Construct, input WaitForSendCommandSuccessInput) awsstepfunctions.IChainable {
 	// Create a wait state that will pause execution for a specified time
 	wait := awsstepfunctions.NewWait(scope, jsii.String("Wait"+*input.Command.Id()), &awsstepfunctions.WaitProps{
-		Time: awsstepfunctions.WaitTime_Duration(awscdk.Duration_Seconds(jsii.Number(30))),
+		Time: awsstepfunctions.WaitTime_Duration(input.PollingInterval),
 	})
 
 	// Create a task to check the command status

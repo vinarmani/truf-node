@@ -10,10 +10,14 @@ import (
 
 func TestSaveAsMarkdown(t *testing.T) {
 	testData := []SavedResults{
-		{Procedure: "Test1", Depth: 1, Days: 7, DurationMs: 100, Visibility: "Public", Samples: 10},
-		{Procedure: "Test1", Depth: 2, Days: 7, DurationMs: 200, Visibility: "Public", Samples: 10},
-		{Procedure: "Test2", Depth: 1, Days: 14, DurationMs: 150, Visibility: "Private", Samples: 10},
-		{Procedure: "Test2", Depth: 2, Days: 14, DurationMs: 250, Visibility: "Private", Samples: 10},
+		{Procedure: "Test1", BranchingFactor: 1, QtyStreams: 1, DurationMs: 100, Visibility: "Public", Samples: 10, Days: 7},
+		{Procedure: "Test1", BranchingFactor: 1, QtyStreams: 2, DurationMs: 100, Visibility: "Public", Samples: 10, Days: 7},
+		{Procedure: "Test1", BranchingFactor: 1, QtyStreams: 3, DurationMs: 100, Visibility: "Public", Samples: 10, Days: 7},
+		{Procedure: "Test2", BranchingFactor: 1, QtyStreams: 100, DurationMs: 150, Visibility: "Private", Samples: 10, Days: 365},
+		{Procedure: "Test1", BranchingFactor: 2, QtyStreams: 10, DurationMs: 200, Visibility: "Public", Samples: 10, Days: 1},
+		{Procedure: "Test1", BranchingFactor: 2, QtyStreams: 10, DurationMs: 300, Visibility: "Public", Samples: 10, Days: 7},
+		{Procedure: "Test2", BranchingFactor: 2, QtyStreams: 10, DurationMs: 250, Visibility: "Private", Samples: 10, Days: 365},
+		{Procedure: "Test2", BranchingFactor: 2, QtyStreams: 100, DurationMs: 350, Visibility: "Private", Samples: 10, Days: 365},
 	}
 
 	tempFile, err := os.CreateTemp("", "test_markdown_*.md")
@@ -36,30 +40,50 @@ func TestSaveAsMarkdown(t *testing.T) {
 
 	expectedContent := `Date: 2023-04-15 12:00:00
 
-## Dates x Depth
+## Dates x Qty Streams
 
 Samples per query: 10
 Results in milliseconds
 
 ### TestInstance
 
+#### Branching Factor: 1
+
 TestInstance - Test1 - Public 
 
-| queried days / depth | 1   | 2   |
-| -------------------- | --- | --- |
-| 7                    | 100 | 200 |
+| queried days / qty streams | 1   | 2   | 3   |
+| -------------------------- | --- | --- | --- |
+| 7                          | 100 | 100 | 100 |
 
 
 
 TestInstance - Test2 - Private 
 
-| queried days / depth | 1   | 2   |
-| -------------------- | --- | --- |
-| 14                   | 150 | 250 |
+| queried days / qty streams | 100 |
+| -------------------------- | --- |
+| 365                        | 150 |
+
+
+
+#### Branching Factor: 2
+
+TestInstance - Test1 - Public 
+
+| queried days / qty streams | 10  |
+| -------------------------- | --- |
+| 1                          | 200 |
+| 7                          | 300 |
+
+
+
+TestInstance - Test2 - Private 
+
+| queried days / qty streams | 10  | 100 |
+| -------------------------- | --- | --- |
+| 365                        | 250 | 350 |
 
 
 
 `
-
 	assert.Equal(t, expectedContent, string(content))
 }
