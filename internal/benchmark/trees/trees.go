@@ -32,36 +32,40 @@ type NewTreeInput struct {
 }
 
 func NewTree(input NewTreeInput) Tree {
-	qtyStreams := input.QtyStreams
-	branchingFactor := input.BranchingFactor
+	tree := Tree{
+		Nodes:           make([]TreeNode, input.QtyStreams),
+		MaxDepth:        CalculateTreeDepth(input.QtyStreams, input.BranchingFactor),
+		QtyStreams:      input.QtyStreams,
+		BranchingFactor: input.BranchingFactor,
+	}
 
-	tree := make([]TreeNode, qtyStreams)
-	for i := 0; i < qtyStreams; i++ {
-		tree[i] = TreeNode{
-			Parent:   (i - 1) / branchingFactor, // -1 to make root's parent -1
-			Children: []int{},
-			Index:    i,
-			IsLeaf:   true, // We'll correct this later
+	// Initialize root node
+	tree.Nodes[0] = TreeNode{Parent: -1, Children: []int{}, Index: 0, IsLeaf: false}
+
+	queue := []int{0}
+	nextIndex := 1
+
+	for len(queue) > 0 {
+		parentIndex := queue[0]
+		queue = queue[1:]
+
+		for i := 0; i < input.BranchingFactor && nextIndex < input.QtyStreams; i++ {
+			childIndex := nextIndex
+			tree.Nodes[childIndex] = TreeNode{
+				Parent:   parentIndex,
+				Children: []int{},
+				Index:    childIndex,
+				IsLeaf:   true, // Initially set as leaf, may change later
+			}
+			tree.Nodes[parentIndex].Children = append(tree.Nodes[parentIndex].Children, childIndex)
+			tree.Nodes[parentIndex].IsLeaf = false
+
+			queue = append(queue, childIndex)
+			nextIndex++
 		}
 	}
 
-	for i := 0; i < qtyStreams; i++ {
-		if i > 0 { // Skip the root node
-			parentIndex := (i - 1) / branchingFactor
-			tree[parentIndex].Children = append(tree[parentIndex].Children, i)
-			tree[parentIndex].IsLeaf = false
-		}
-	}
-	tree[0].Parent = -1 // Set root's parent to -1
-
-	maxDepth := CalculateTreeDepth(qtyStreams, branchingFactor)
-
-	return Tree{
-		Nodes:           tree,
-		MaxDepth:        maxDepth,
-		QtyStreams:      qtyStreams,
-		BranchingFactor: branchingFactor,
-	}
+	return tree
 }
 
 func CalculateTreeDepth(qtyStreams, branchingFactor int) int {
