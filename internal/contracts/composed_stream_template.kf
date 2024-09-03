@@ -114,11 +114,13 @@ procedure get_raw_record(
         $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
         for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_record']($date_from, $date_to, $frozen_at) as r {
             if $row2.date_value != $current_date {
-                // Emit buffered values
+                // we assign to 0, otherwise it's null and gets error
+                // on the len_buffer_dates below
                 $len_buffer_dates int := 0;
                 if array_length($buffer_dates) IS DISTINCT FROM null {
                     $len_buffer_dates := array_length($buffer_dates);
                 }
+                // Emit buffered values
                 for $i in 1..$len_buffer_dates {
                     return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
                 }
@@ -193,11 +195,13 @@ procedure get_raw_index(
         $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
         for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_index']($date_from, $date_to, $frozen_at) as r {
             if $row2.date_value != $current_date {
-                // Emit buffered values
+                // we assign to 0, otherwise it's null and gets error
+                // on the len_buffer_dates below
                 $len_buffer_dates int := 0;
                 if array_length($buffer_dates) IS DISTINCT FROM null {
                     $len_buffer_dates := array_length($buffer_dates);
                 }
+                // Emit buffered values
                 for $i in 1..$len_buffer_dates {
                     return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
                 }
