@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/kwilteam/kwil-db/common"
 	kwiltypes "github.com/kwilteam/kwil-db/core/types"
@@ -199,16 +200,25 @@ func insertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid, k
 // - it generates records for the given number of days
 // - it generates a random value for each record
 // - it inserts the records into the stream
+// - we use a bulk insert to speed up the process
 func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platform, dbid string, days int) error {
 	fromDate := fixedDate.AddDate(0, 0, -days)
 	records := generateRecords(fromDate, fixedDate)
 
+	// Prepare the SQL statement for bulk insert
+	sqlStmt := "INSERT INTO primitive_events (date_value, value, created_at) VALUES "
+	var values []string
+
 	for _, record := range records {
-		if err := executeStreamProcedure(ctx, platform, dbid, "insert_record", record, platform.Deployer); err != nil {
-			return err
-		}
+		values = append(values, fmt.Sprintf("('%s', %s::decimal(21,3), 0)", record[0], record[1]))
 	}
-	return nil
+
+	sqlStmt += strings.Join(values, ", ")
+
+	// Execute the bulk insert
+	_, err := platform.Engine.Execute(ctx, platform.DB, dbid, sqlStmt, nil)
+
+	return err
 }
 
 // setTaxonomyForComposed sets the taxonomy for a composed stream.
