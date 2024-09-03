@@ -186,7 +186,7 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 					jsii.String("unzip -o "+input.LaunchTemplateOutput.BenchmarkBinaryZipPath+" -d /home/ec2-user/benchmark"),
 					jsii.String("chmod +x /home/ec2-user/benchmark/benchmark"),
 					awsstepfunctions.JsonPath_Format(
-						jsii.String("RESULTS_PATH=/tmp/results.csv /home/ec2-user/benchmark/benchmark && aws s3 cp /tmp/results.csv s3://{}/{}_{}.csv"),
+						jsii.String("RESULTS_PATH=/tmp/results.csv LOG_RESULTS=false /home/ec2-user/benchmark/benchmark && aws s3 cp /tmp/results.csv s3://{}/{}_{}.csv"),
 						input.ResultsBucket.BucketName(),
 						awsstepfunctions.JsonPath_StringAt(jsii.String("$.timestamp")),
 						awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceType")),
@@ -227,14 +227,25 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 		OutputPath: jsii.String("$[0]"),
 	})
 
-	errorHandler := awsstepfunctions.NewFail(scope, jsii.String("ErrorHandler"+input.Id), &awsstepfunctions.FailProps{
-		// we want to pass the error and the ec2 instance to the error handler, so we can handle upstream
-		Cause: awsstepfunctions.JsonPath_JsonToString(awsstepfunctions.JsonPath_JsonMerge(
-			awsstepfunctions.JsonPath_ObjectAt(jsii.String("$.error")),
-			awsstepfunctions.JsonPath_ObjectAt(jsii.String("$.ec2Instance")),
-		)),
-		Error: jsii.String("WorkflowFailed"),
+	formatErrorState := awsstepfunctions.NewPass(scope, jsii.String("FormatError"+input.Id), &awsstepfunctions.PassProps{
+		Parameters: &map[string]interface{}{
+			"Error": jsii.String("Workflow failed"),
+			"Cause": awsstepfunctions.JsonPath_JsonToString(awsstepfunctions.JsonPath_JsonMerge(
+				awsstepfunctions.JsonPath_ObjectAt(jsii.String("$.error")),
+				awsstepfunctions.JsonPath_ObjectAt(jsii.String("$.ec2Instance")),
+			)),
+		},
+		ResultPath: jsii.String("$.error"),
 	})
+
+	errorState := awsstepfunctions.NewFail(scope, jsii.String("ErrorHandler"+input.Id), &awsstepfunctions.FailProps{
+		// we want to pass the error and the ec2 instance to the error handler, so we can handle upstream
+		CausePath: jsii.String("$.error.Cause"),
+		ErrorPath: jsii.String("$.error.Error"),
+	})
+
+	errorHandler := awsstepfunctions.Chain_Start(formatErrorState).
+		Next(errorState)
 
 	benchmarkWorkflowState.AddCatch(errorHandler, &awsstepfunctions.CatchProps{
 		ResultPath: jsii.String("$.error"),
@@ -383,6 +394,8 @@ func WaitForSendCommandSuccess(scope constructs.Construct, input WaitForSendComm
 		ErrorPath: jsii.String("$.error.Error"),
 	})
 
+	handleError := awsstepfunctions.Chain_Start(formatErrorState).Next(failState)
+
 	// Chain the states together
 	definition := awsstepfunctions.Chain_Start(wait).
 		Next(checkStatus).
@@ -394,8 +407,8 @@ func WaitForSendCommandSuccess(scope constructs.Construct, input WaitForSendComm
 				),
 			}), nil).
 			When(inProgressCondition, wait, nil).
-			When(failureCondition, failState, nil).
-			Otherwise(formatErrorState.Next(failState)))
+			When(failureCondition, handleError, nil).
+			Otherwise(handleError))
 
 	// make the definition a single parallel state
 	return definition.ToSingleState(jsii.String("WaitForSendCommandSuccess"+*input.Command.Id()), &awsstepfunctions.ParallelProps{

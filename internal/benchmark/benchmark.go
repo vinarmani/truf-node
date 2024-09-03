@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
@@ -108,7 +109,10 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 			return err
 		}
 
-		printResults(results)
+		// if LOG_RESULTS is set, we print the results to the console
+		if os.Getenv("LOG_RESULTS") == "true" {
+			printResults(results)
+		}
 
 		return saveResults(results, resultPath)
 	}

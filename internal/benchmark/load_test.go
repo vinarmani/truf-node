@@ -11,6 +11,11 @@ import (
 
 // Main benchmark test function
 func TestBench(t *testing.T) {
+	// set default LOG_RESULTS to true
+	if os.Getenv("LOG_RESULTS") == "" {
+		os.Setenv("LOG_RESULTS", "true")
+	}
+
 	// try get resultPath from env
 	resultPath := os.Getenv("RESULTS_PATH")
 	if resultPath == "" {
