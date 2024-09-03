@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
