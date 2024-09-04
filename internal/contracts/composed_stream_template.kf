@@ -109,40 +109,46 @@ procedure get_raw_record(
     $empty_decimal_array decimal(21,3)[];
     $empty_int_array int[];
 
-    // arrays are 1-indexed, so we match that
-    for $taxonomy_index in 1..array_length($child_data_providers) {
-        $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
-        for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_record']($date_from, $date_to, $frozen_at) as r {
-            if $row2.date_value != $current_date {
-                // we assign to 0, otherwise it's null and gets error
-                // on the len_buffer_dates below
-                $len_buffer_dates int := 0;
-                if array_length($buffer_dates) IS DISTINCT FROM null {
-                    $len_buffer_dates := array_length($buffer_dates);
+    $child_count int := array_length($child_data_providers);
+
+    // won't return anything if there's no taxonomies
+    if $child_count > 0 {
+        for $taxonomy_index in 1..$child_count {
+            $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
+            for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_record']($date_from, $date_to, $frozen_at) as r {
+                if $row2.date_value != $current_date {
+                    // we assign to 0, otherwise it's null and gets error
+                    // on the len_buffer_dates below
+                    $len_buffer_dates int := 0;
+                    if array_length($buffer_dates) IS DISTINCT FROM null {
+                        $len_buffer_dates := array_length($buffer_dates);
+                    }
+                    // Emit buffered values
+                    for $i in 1..$len_buffer_dates {
+                        return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
+                    }
+                    // Clear buffers
+                    $buffer_dates  := $empty_text_array;
+                    $buffer_values := $empty_decimal_array;
+                    $buffer_indices := $empty_int_array;
+                    $current_date := $row2.date_value;
+                    $current_index := 1;
                 }
-                // Emit buffered values
-                for $i in 1..$len_buffer_dates {
-                    return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
-                }
-                // Clear buffers
-                $buffer_dates  := $empty_text_array;
-                $buffer_values := $empty_decimal_array;
-                $buffer_indices := $empty_int_array;
-                $current_date := $row2.date_value;
-                $current_index := 1;
+
+                // Add to buffer
+                $buffer_dates := array_append($buffer_dates, $row2.date_value);
+                $buffer_values := array_append($buffer_values, $row2.value);
+                $buffer_indices := array_append($buffer_indices, $current_index);
+                $current_index := $current_index + 1;
             }
-
-            // Add to buffer
-            $buffer_dates := array_append($buffer_dates, $row2.date_value);
-            $buffer_values := array_append($buffer_values, $row2.value);
-            $buffer_indices := array_append($buffer_indices, $current_index);
-            $current_index := $current_index + 1;
         }
-    }
 
-    // Emit remaining buffered values
-    for $i2 in 1..array_length($buffer_dates) {
-        return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+        // Emit remaining buffered values
+        if array_length($buffer_dates) > 0 {
+            for $i2 in 1..array_length($buffer_dates) {
+                return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+            }
+        }
     }
 }
 
@@ -190,40 +196,48 @@ procedure get_raw_index(
     $empty_text_array text[];
     $empty_decimal_array decimal(21,3)[];
     $empty_int_array int[];
-    // arrays are 1-indexed, so we match that
-    for $taxonomy_index in 1..array_length($child_data_providers) {
-        $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
-        for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_index']($date_from, $date_to, $frozen_at) as r {
-            if $row2.date_value != $current_date {
-                // we assign to 0, otherwise it's null and gets error
-                // on the len_buffer_dates below
-                $len_buffer_dates int := 0;
-                if array_length($buffer_dates) IS DISTINCT FROM null {
-                    $len_buffer_dates := array_length($buffer_dates);
+
+    $child_count int := array_length($child_data_providers);
+
+    // won't return anything if there's no taxonomies
+    if $child_count > 0 {
+        // arrays are 1-indexed, so we match that
+        for $taxonomy_index in 1..$child_count {
+            $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
+            for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_index']($date_from, $date_to, $frozen_at) as r {
+                if $row2.date_value != $current_date {
+                    // we assign to 0, otherwise it's null and gets error
+                    // on the len_buffer_dates below
+                    $len_buffer_dates int := 0;
+                    if array_length($buffer_dates) IS DISTINCT FROM null {
+                        $len_buffer_dates := array_length($buffer_dates);
+                    }
+                    // Emit buffered values
+                    for $i in 1..$len_buffer_dates {
+                        return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
+                    }
+                    // Clear buffers
+                    $buffer_dates := $empty_text_array;
+                    $buffer_values := $empty_decimal_array;
+                    $buffer_indices := $empty_int_array;
+                    $current_date := $row2.date_value;
+                    $current_index := 1;
                 }
-                // Emit buffered values
-                for $i in 1..$len_buffer_dates {
-                    return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
-                }
-                // Clear buffers
-                $buffer_dates := $empty_text_array;
-                $buffer_values := $empty_decimal_array;
-                $buffer_indices := $empty_int_array;
-                $current_date := $row2.date_value;
-                $current_index := 1;
+
+                // Add to buffer
+                $buffer_dates := array_append($buffer_dates, $row2.date_value);
+                $buffer_values := array_append($buffer_values, $row2.value);
+                $buffer_indices := array_append($buffer_indices, $current_index);
+                $current_index := $current_index + 1;
             }
-
-            // Add to buffer
-            $buffer_dates := array_append($buffer_dates, $row2.date_value);
-            $buffer_values := array_append($buffer_values, $row2.value);
-            $buffer_indices := array_append($buffer_indices, $current_index);
-            $current_index := $current_index + 1;
         }
-    }
 
-    // Emit remaining buffered values
-    for $i2 in 1..array_length($buffer_dates) {
-        return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+        // Emit remaining buffered values
+        if array_length($buffer_dates) > 0 {
+            for $i2 in 1..array_length($buffer_dates) {
+                return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+            }
+        }
     }
 }
 
@@ -1054,16 +1068,18 @@ procedure get_index_change($date_from text, $date_to text, $frozen_at int, $days
     $real_prev_date_idx int := 1;
 
     // for each expected prev date, we find the matching real prev date
-    for $expected_prev_date_idx in 1..array_length($expected_prev_dates) {
-        // we start from the last index of real prev dates. we don't need to check previous values
-        for $selector in $real_prev_date_idx..array_length($real_prev_dates) {
-            // if next real prev date is greater than expected prev date (or null), then we need to use the current real value
-            if $real_prev_dates[$selector + 1] > $expected_prev_dates[$expected_prev_date_idx] OR $real_prev_dates[$selector + 1] IS NULL {
-                $result_prev_dates := array_append($result_prev_dates, $real_prev_dates[$selector]);
-                $result_prev_values := array_append($result_prev_values, $real_prev_values[$selector]);
-                // we already appended one for current $real_prev_date_idx, then we need to go to next
-                $real_prev_date_idx := $selector;
-                break;
+    if array_length($expected_prev_dates) > 0 {
+        for $expected_prev_date_idx in 1..array_length($expected_prev_dates) {
+            // we start from the last index of real prev dates. we don't need to check previous values
+            for $selector in $real_prev_date_idx..array_length($real_prev_dates) {
+                // if next real prev date is greater than expected prev date (or null), then we need to use the current real value
+                if $real_prev_dates[$selector + 1] > $expected_prev_dates[$expected_prev_date_idx] OR $real_prev_dates[$selector + 1] IS NULL {
+                    $result_prev_dates := array_append($result_prev_dates, $real_prev_dates[$selector]);
+                    $result_prev_values := array_append($result_prev_values, $real_prev_values[$selector]);
+                    // we already appended one for current $real_prev_date_idx, then we need to go to next
+                    $real_prev_date_idx := $selector;
+                    break;
+                }
             }
         }
     }
@@ -1077,9 +1093,11 @@ procedure get_index_change($date_from text, $date_to text, $frozen_at int, $days
     }
 
     // calculate the index change
-    for $row_result in 1..array_length($result_prev_dates) {
-        if $result_prev_values[$row_result] != 0::decimal(21,3) {
-            return next $current_dates[$row_result], ($current_values[$row_result] - $result_prev_values[$row_result]) * 100.00::decimal(21,3) / $result_prev_values[$row_result];
+    if array_length($result_prev_dates) > 0 {
+        for $row_result in 1..array_length($result_prev_dates) {
+            if $result_prev_values[$row_result] != 0::decimal(21,3) {
+                return next $current_dates[$row_result], ($current_values[$row_result] - $result_prev_values[$row_result]) * 100.00::decimal(21,3) / $result_prev_values[$row_result];
+            }
         }
     }
 }
@@ -1093,8 +1111,10 @@ procedure emit_values_if($condition bool, $date_value text, $values decimal(21,3
     weight decimal(21,3)
 ) {
     if $condition == true {
-        for $i in 1..array_length($values) {
-            return next $date_value, $values[$i], $weights[$i];
+        if array_length($values) > 0 {
+            for $i in 1..array_length($values) {
+                return next $date_value, $values[$i], $weights[$i];
+            }
         }
     }
 }
