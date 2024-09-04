@@ -63,6 +63,7 @@ procedure get_dbid($data_provider text, $stream_id text) private view returns (r
     return generate_dbid($stream_id, decode($data_provider_without_0x, 'hex'));
 }
 
+
 // It returns every record value for every date as its own
 // row. e.g.:
 // 2020-06-01, 100
@@ -87,70 +88,22 @@ procedure get_raw_record(
     // check if the stream is allowed to compose
     is_stream_allowed_to_compose();
 
-
     // check if the child_data_providers and child_stream_id are the same length
     if array_length($child_data_providers) != array_length($child_stream_ids) {
         error('child_data_providers and child_stream_id must be the same length');
     }
 
-    // we want to emit it ordered by
-    // 1. date_value
-    // 2. taxonomy_index
-    // then we can't just emit in loop, otherwise it will emit
-    // groups of the same taxonomy_index and ordered by date_value (not good)
-    $current_date text := '';
-    $current_index int := 1;
-    $buffer_dates text[];
-    $buffer_values decimal(21,3)[];
-    $buffer_indices int[];
-
-    $empty_text_array text[];
-
-    $empty_decimal_array decimal(21,3)[];
-    $empty_int_array int[];
-
-    $child_count int := array_length($child_data_providers);
-
-    // won't return anything if there's no taxonomies
-    if $child_count > 0 {
-        for $taxonomy_index in 1..$child_count {
+    if array_length($child_data_providers) > 0 {
+        // arrays are 1-indexed, so we match that
+        for $taxonomy_index in 1..array_length($child_data_providers) {
             $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
-            for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_record']($date_from, $date_to, $frozen_at) as r {
-                if $row2.date_value != $current_date {
-                    // we assign to 0, otherwise it's null and gets error
-                    // on the len_buffer_dates below
-                    $len_buffer_dates int := 0;
-                    if array_length($buffer_dates) IS DISTINCT FROM null {
-                        $len_buffer_dates := array_length($buffer_dates);
-                    }
-                    // Emit buffered values
-                    for $i in 1..$len_buffer_dates {
-                        return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
-                    }
-                    // Clear buffers
-                    $buffer_dates  := $empty_text_array;
-                    $buffer_values := $empty_decimal_array;
-                    $buffer_indices := $empty_int_array;
-                    $current_date := $row2.date_value;
-                    $current_index := 1;
-                }
-
-                // Add to buffer
-                $buffer_dates := array_append($buffer_dates, $row2.date_value);
-                $buffer_values := array_append($buffer_values, $row2.value);
-                $buffer_indices := array_append($buffer_indices, $current_index);
-                $current_index := $current_index + 1;
-            }
-        }
-
-        // Emit remaining buffered values
-        if array_length($buffer_dates) > 0 {
-            for $i2 in 1..array_length($buffer_dates) {
-                return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+            for $row3 in SELECT * FROM ext_get_data[$dbid, 'get_record']($date_from, $date_to, $frozen_at) {
+                return next $row3.date_value, $row3.value, $taxonomy_index;
             }
         }
     }
 }
+
 
 // It returns every index value for every date as its own
 // row. e.g.:
@@ -182,60 +135,12 @@ procedure get_raw_index(
         error('child_data_providers and child_stream_id must be the same length');
     }
 
-    // we want to emit it ordered by
-    // 1. date_value
-    // 2. taxonomy_index
-    // then we can't just emit in loop, otherwise it will emit
-    // groups of the same taxonomy_index and ordered by date_value (not good)
-    $current_date text := '';
-    $current_index int := 1;
-    $buffer_dates text[];
-    $buffer_values decimal(21,3)[];
-    $buffer_indices int[];
-
-    $empty_text_array text[];
-    $empty_decimal_array decimal(21,3)[];
-    $empty_int_array int[];
-
-    $child_count int := array_length($child_data_providers);
-
-    // won't return anything if there's no taxonomies
-    if $child_count > 0 {
+    if array_length($child_data_providers) > 0 {
         // arrays are 1-indexed, so we match that
-        for $taxonomy_index in 1..$child_count {
+        for $taxonomy_index in 1..array_length($child_data_providers) {
             $dbid text := get_dbid($child_data_providers[$taxonomy_index], $child_stream_ids[$taxonomy_index]);
-            for $row2 in SELECT r.date_value, r.value FROM ext_get_data[$dbid, 'get_index']($date_from, $date_to, $frozen_at) as r {
-                if $row2.date_value != $current_date {
-                    // we assign to 0, otherwise it's null and gets error
-                    // on the len_buffer_dates below
-                    $len_buffer_dates int := 0;
-                    if array_length($buffer_dates) IS DISTINCT FROM null {
-                        $len_buffer_dates := array_length($buffer_dates);
-                    }
-                    // Emit buffered values
-                    for $i in 1..$len_buffer_dates {
-                        return next $buffer_dates[$i], $buffer_values[$i], $buffer_indices[$i];
-                    }
-                    // Clear buffers
-                    $buffer_dates := $empty_text_array;
-                    $buffer_values := $empty_decimal_array;
-                    $buffer_indices := $empty_int_array;
-                    $current_date := $row2.date_value;
-                    $current_index := 1;
-                }
-
-                // Add to buffer
-                $buffer_dates := array_append($buffer_dates, $row2.date_value);
-                $buffer_values := array_append($buffer_values, $row2.value);
-                $buffer_indices := array_append($buffer_indices, $current_index);
-                $current_index := $current_index + 1;
-            }
-        }
-
-        // Emit remaining buffered values
-        if array_length($buffer_dates) > 0 {
-            for $i2 in 1..array_length($buffer_dates) {
-                return next $buffer_dates[$i2], $buffer_values[$i2], $buffer_indices[$i2]::int;
+            for $row3 in SELECT * FROM ext_get_data[$dbid, 'get_index']($date_from, $date_to, $frozen_at) {
+                return next $row3.date_value, $row3.value, $taxonomy_index;
             }
         }
     }
@@ -288,7 +193,7 @@ procedure get_record_filled($date_from text, $date_to text, $frozen_at int) priv
         $frozen_at,
         $child_data_providers,
         $child_stream_id
-    ) as r {
+    ) as r ORDER BY r.date_value ASC, r.taxonomy_index ASC {
 
         // Update the last values array with the current value
         $current_taxonomy_index := $row_raw.taxonomy_index;
@@ -435,7 +340,7 @@ procedure get_index_filled($date_from text, $date_to text, $frozen_at int) priva
         $frozen_at,
         $child_data_providers,
         $child_stream_id
-    ) as r {
+    ) as r ORDER BY r.date_value ASC, r.taxonomy_index ASC {
 
         // Update the last values array with the current value
         $current_taxonomy_index := $row_raw.taxonomy_index;
