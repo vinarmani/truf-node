@@ -21,8 +21,8 @@ import (
 
 // -------------------------------------------------------------------------------------------------
 // Export Results Lambda
-// - takes a list of CSV files from the results bucket, merges them into a single file and saves them as a markdown file
-// - the markdown file is then saved back to the results bucket
+// - takes a list of CSV files from the results bucket, merges them into a single file and saves them as a markdown file and a CSV file
+// - both files are then saved back to the results bucket
 // - errors if there's no CSV files to process
 // -------------------------------------------------------------------------------------------------
 
@@ -37,6 +37,7 @@ type Event struct {
 }
 
 const markdownFilePath = "/tmp/results.md"
+const csvFilePath = "/tmp/results.csv"
 
 func HandleRequest(ctx context.Context, event Event) error {
 	// delete if file exists. remember that lambdas can share the same filesystem accross multiple invocations1
@@ -123,6 +124,12 @@ func HandleRequest(ctx context.Context, event Event) error {
 			FilePath:     markdownFilePath,
 		})
 
+		err = benchexport.SaveOrAppendToCSV(results, csvFilePath)
+		if err != nil {
+			log.Printf("Error processing file %s: %v", csvFile, err)
+			return err
+		}
+
 		if err != nil {
 			log.Printf("Error processing file %s: %v", csvFile, err)
 			return err
@@ -132,37 +139,15 @@ func HandleRequest(ctx context.Context, event Event) error {
 	log.Printf("Exporting results to s3://%s/%s.md", event.Bucket, event.KeyPrefix)
 
 	resultsKey := fmt.Sprintf("reports/%s.md", event.KeyPrefix)
+	csvResultsKey := fmt.Sprintf("reports/%s.csv", event.KeyPrefix)
 
-	// check if the file already exists
-	_, errExists := s3Client.HeadObject(&s3.HeadObjectInput{
-		Bucket: aws.String(event.Bucket),
-		Key:    aws.String(resultsKey),
-	})
-
-	// we know the file doesn't exist if we receive an error. we won't try to get if it's 404 to be simple
-	if errExists != nil {
-		log.Printf("File already exists: %s", resultsKey)
-
-		// delete if it exists
-		log.Printf("Deleting file: %s", resultsKey)
-
-		_, err = s3Client.DeleteObject(&s3.DeleteObjectInput{
-			Bucket: aws.String(event.Bucket),
-			Key:    aws.String(resultsKey),
-		})
-
-		if err != nil {
-			log.Printf("Error deleting file: %v", err)
-			return err
-		}
-	}
-
+	mergedMdFile, err := os.ReadFile(markdownFilePath)
 	if err != nil {
-		log.Printf("Error uploading merged file: %v", err)
+		log.Printf("Error reading merged file: %v", err)
 		return err
 	}
 
-	mergedFile, err := os.ReadFile(markdownFilePath)
+	mergedCsvFile, err := os.ReadFile(csvFilePath)
 	if err != nil {
 		log.Printf("Error reading merged file: %v", err)
 		return err
@@ -172,12 +157,24 @@ func HandleRequest(ctx context.Context, event Event) error {
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
 		Bucket:      aws.String(event.Bucket),
 		Key:         aws.String(resultsKey),
-		Body:        bytes.NewReader(mergedFile),
+		Body:        bytes.NewReader(mergedMdFile),
 		ContentType: aws.String("text/markdown"),
 	})
 
 	if err != nil {
-		log.Printf("Error uploading merged file: %v", err)
+		log.Printf("Error uploading markdown file: %v", err)
+		return err
+	}
+
+	_, err = s3Client.PutObject(&s3.PutObjectInput{
+		Bucket:      aws.String(event.Bucket),
+		Key:         aws.String(csvResultsKey),
+		Body:        bytes.NewReader(mergedCsvFile),
+		ContentType: aws.String("text/csv"),
+	})
+
+	if err != nil {
+		log.Printf("Error uploading CSV file: %v", err)
 		return err
 	}
 
