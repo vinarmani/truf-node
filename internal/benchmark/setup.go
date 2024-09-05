@@ -12,6 +12,7 @@ import (
 	"github.com/kwilteam/kwil-db/core/utils"
 	"github.com/kwilteam/kwil-db/parse"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/pkg/errors"
 	"github.com/truflation/tsn-db/internal/benchmark/trees"
 	"github.com/truflation/tsn-db/internal/contracts"
 	"github.com/truflation/tsn-sdk/core/types"
@@ -37,19 +38,19 @@ func setupSchemas(
 		if node.IsLeaf {
 			schema, err = parse.Parse(contracts.PrimitiveStreamContent)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "failed to parse primitive stream")
 			}
 		} else {
 			schema, err = parse.Parse(contracts.ComposedStreamContent)
 			if err != nil {
-				return err
+				return errors.Wrap(err, "failed to parse composed stream")
 			}
 		}
 
 		schema.Name = getStreamId(node.Index).String()
 
 		if err := createAndInitializeSchema(ctx, platform, schema); err != nil {
-			return err
+			return errors.Wrap(err, "failed to create and initialize schema")
 		}
 
 		if err := setupSchema(ctx, platform, schema, setupSchemaInput{
@@ -58,7 +59,7 @@ func setupSchemas(
 			days:       380, // to be sure we have more days to calculate change index
 			owner:      deployerAddress,
 		}); err != nil {
-			return err
+			return errors.Wrap(err, "failed to setup schema")
 		}
 	}
 	return nil
@@ -70,7 +71,7 @@ func createAndInitializeSchema(ctx context.Context, platform *kwilTesting.Platfo
 		TxID:   platform.Txid(),
 		Height: 0,
 	}); err != nil {
-		return err
+		return errors.Wrap(err, "failed to create dataset")
 	}
 
 	_, err := platform.Engine.Procedure(ctx, platform.DB, &common.ExecutionData{
@@ -83,7 +84,10 @@ func createAndInitializeSchema(ctx context.Context, platform *kwilTesting.Platfo
 			Height: 1,
 		},
 	})
-	return err
+	if err != nil {
+		return errors.Wrap(err, "failed to initialize schema")
+	}
+	return nil
 }
 
 type setupSchemaInput struct {
@@ -99,16 +103,21 @@ func setupSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kw
 
 	if input.visibility == util.PrivateVisibility {
 		if err := setVisibilityAndWhitelist(ctx, platform, dbid, input.readerDbid); err != nil {
-			return err
+			return errors.Wrap(err, "failed to set visibility and whitelist")
 		}
 	}
 
 	// if it's a leaf, then it's a primitive stream
 	if input.treeNode.IsLeaf {
-		return insertRecordsForPrimitive(ctx, platform, dbid, input.days)
+		if err := insertRecordsForPrimitive(ctx, platform, dbid, input.days); err != nil {
+			return errors.Wrap(err, "failed to insert records for primitive")
+		}
+	} else {
+		if err := setTaxonomyForComposed(ctx, platform, dbid, input); err != nil {
+			return errors.Wrap(err, "failed to set taxonomy for composed")
+		}
 	}
-	// if it's not a leaf, then it's a composed stream
-	return setTaxonomyForComposed(ctx, platform, dbid, input)
+	return nil
 }
 
 func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platform, dbid string, readerDbid string) error {
@@ -143,7 +152,7 @@ func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platfo
 
 	for _, m := range metadataToInsert {
 		if err := insertMetadata(ctx, platform, dbid, m.key, m.val, m.valType); err != nil {
-			return err
+			return errors.Wrap(err, "failed to insert metadata")
 		}
 	}
 	return nil
@@ -193,7 +202,10 @@ func insertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid, k
 			Height: 0,
 		},
 	})
-	return err
+	if err != nil {
+		return errors.Wrap(err, "failed to insert metadata")
+	}
+	return nil
 }
 
 // insertRecordsForPrimitive inserts records for a primitive stream.
@@ -217,8 +229,10 @@ func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platfo
 
 	// Execute the bulk insert
 	_, err := platform.Engine.Execute(ctx, platform.DB, dbid, sqlStmt, nil)
-
-	return err
+	if err != nil {
+		return errors.Wrap(err, "failed to execute bulk insert")
+	}
+	return nil
 }
 
 // setTaxonomyForComposed sets the taxonomy for a composed stream.

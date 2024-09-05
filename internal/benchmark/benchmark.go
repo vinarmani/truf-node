@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
+	"github.com/pkg/errors"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/truflation/tsn-db/internal/benchmark/trees"
@@ -21,7 +22,7 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 		Tree:          tree,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to setup schemas")
 	}
 
 	for _, day := range c.Days {
@@ -34,7 +35,7 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 				Tree:      tree,
 			})
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "failed to run single test")
 			}
 			results = append(results, result)
 		}
@@ -106,7 +107,7 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 
 		results, err := runBenchmark(ctx, platform, benchmarkCase, tree)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to run benchmark")
 		}
 
 		// if LOG_RESULTS is set, we print the results to the console

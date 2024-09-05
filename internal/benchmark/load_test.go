@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/pkg/errors"
 	"github.com/truflation/tsn-sdk/core/util"
 )
 
@@ -24,6 +25,7 @@ func TestBench(t *testing.T) {
 
 	// Delete the file if it exists
 	if err := deleteFileIfExists(resultPath); err != nil {
+		err = errors.Wrap(err, "failed to delete file if exists")
 		t.Fatal(err)
 	}
 
