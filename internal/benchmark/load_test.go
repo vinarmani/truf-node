@@ -38,31 +38,40 @@ func TestBench(t *testing.T) {
 
 	shapePairs := [][]int{
 		// qtyStreams, branchingFactor
-		// flat trees
-		{1, math.MaxInt},
-		{10, math.MaxInt},
-		{100, math.MaxInt},
-		{150, math.MaxInt},
-		{500, math.MaxInt},
-
-		// deep trees
+		// testing 1 stream only
 		{1, 1},
-		{10, 1},
-		{100, 1},
-		{150, 1},
-		// we can't go deeper than 180, for call stack size
 
-		// 4-way trees
-		{1, 4},
-		{10, 4},
-		{100, 4},
-		{150, 4},
-		{500, 4},
+		// flat trees = cost of adding a new stream to our composed
+		{50, math.MaxInt},
+		{100, math.MaxInt},
+		{200, math.MaxInt},
+		{400, math.MaxInt},
+		{800, math.MaxInt},
+		//{1500, math.MaxInt}, // this gives error: Out of shared memory
+
+		// deep trees = cost of adding depth
+		{50, 1},
+		{100, 1},
+		//{200, 1}, // we can't go deeper than 180, for call stack size issues
+
+		// to get difference for stream qty on a real world situation
+		{50, 8},
+		{100, 8},
+		{200, 8},
+		{400, 8},
+		{800, 8},
+
+		// to get difference for branching factor
+		{200, 2},
+		{200, 4},
+		// {200, 8}, // already tested above
+		{200, 16},
+		{200, 32},
 	}
 
-	samples := 10
+	samples := 3
 
-	days := []int{1, 3, 7, 30, 365}
+	days := []int{1, 7, 30, 365}
 
 	visibilities := []util.VisibilityEnum{util.PublicVisibility, util.PrivateVisibility}
 
