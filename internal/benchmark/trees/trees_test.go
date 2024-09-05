@@ -224,3 +224,26 @@ func compareTreeStructure(a, b Tree) bool {
 	}
 	return true
 }
+
+func TestDisplayTree(t *testing.T) {
+	t.Logf("Tree with 100 streams and branching factor 1:")
+	tree := NewTree(NewTreeInput{
+		QtyStreams:      100,
+		BranchingFactor: 1,
+	})
+	t.Log(tree.ToDisplay(0))
+
+	t.Logf("Tree with 100 streams and branching factor 2:")
+	tree = NewTree(NewTreeInput{
+		QtyStreams:      100,
+		BranchingFactor: 2,
+	})
+	t.Log(tree.ToDisplay(0))
+
+	t.Logf("Tree with 100 streams and branching factor 4:")
+	tree = NewTree(NewTreeInput{
+		QtyStreams:      100,
+		BranchingFactor: 4,
+	})
+	t.Log(tree.ToDisplay(0))
+}

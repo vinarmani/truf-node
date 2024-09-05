@@ -1,6 +1,10 @@
 package trees
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"strings"
+)
 
 // our tree node will be like this:
 // qtyStreams = 6, branchingFactor = 3
@@ -70,4 +74,30 @@ func NewTree(input NewTreeInput) Tree {
 
 func CalculateTreeDepth(qtyStreams, branchingFactor int) int {
 	return int(math.Ceil(math.Log(float64(qtyStreams)) / math.Log(float64(branchingFactor))))
+}
+
+// ToDisplay returns a string representation of the tree
+// to visualize it here: https://csacademy.com/app/graph_editor/
+// basically each line must be:
+// <parent1> <child1>
+// <parent1> <child2>
+// <parent2> <child3>
+func (t *Tree) ToDisplay(index int) string {
+	queue := []int{index}
+	visited := make(map[int]bool)
+	lines := []string{}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		visited[current] = true
+		for _, child := range t.Nodes[current].Children {
+			if !visited[child] {
+				queue = append(queue, child)
+				lines = append(lines, fmt.Sprintf("%d %d", current, child))
+			}
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
