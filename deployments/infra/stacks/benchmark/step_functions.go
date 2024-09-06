@@ -2,10 +2,12 @@ package benchmark
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awslambda"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awslogs"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsstepfunctions"
@@ -155,6 +157,16 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 	})
 
 	// Copy binary to EC2 instance, run benchmark tests and export results to S3
+	// Create a log group for the command execution
+	logGroupName := fmt.Sprintf("/aws/ssm/RunBenchmark-%s", *input.LaunchTemplateOutput.InstanceType.ToString())
+	// only permitted characters: [\.\-_/#A-Za-z0-9]+
+	logGroupName = regexp.MustCompile(`[^a-zA-Z0-9\.\-_]`).ReplaceAllString(logGroupName, "")
+	commandLogGroup := awslogs.NewLogGroup(scope, jsii.String("BenchmarkCommandLogGroup"+*input.LaunchTemplateOutput.InstanceType.ToString()), &awslogs.LogGroupProps{
+		LogGroupName:  jsii.String(logGroupName),
+		Retention:     awslogs.RetentionDays_THREE_DAYS,
+		RemovalPolicy: awscdk.RemovalPolicy_DESTROY,
+	})
+
 	runBenchmarkTask := awsstepfunctionstasks.NewCallAwsService(scope, jsii.String("RunBenchmark"+input.Id), &awsstepfunctionstasks.CallAwsServiceProps{
 		Service: jsii.String("ssm"),
 		Action:  jsii.String("sendCommand"),
@@ -173,6 +185,10 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 			"DocumentName": jsii.String("AWS-RunShellScript"),
 			// 6 hours
 			"TimeoutSeconds": jsii.Number(6 * 60 * 60),
+			"CloudWatchOutputConfig": map[string]interface{}{
+				"CloudWatchLogGroupName":  commandLogGroup.LogGroupName(),
+				"CloudWatchOutputEnabled": true,
+			},
 			"Parameters": map[string]interface{}{
 				"executionTimeout": awsstepfunctions.JsonPath_Array(jsii.Sprintf("%d", 6*60*60)),
 				"commands": awsstepfunctions.JsonPath_Array(
