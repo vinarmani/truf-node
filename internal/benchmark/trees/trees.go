@@ -46,6 +46,12 @@ func NewTree(input NewTreeInput) Tree {
 	// Initialize root node
 	tree.Nodes[0] = TreeNode{Parent: -1, Children: []int{}, Index: 0, IsLeaf: false}
 
+	// if there's only one stream, then it's a leaf
+	if input.QtyStreams == 1 {
+		tree.Nodes[0].IsLeaf = true
+		return tree
+	}
+
 	queue := []int{0}
 	nextIndex := 1
 
