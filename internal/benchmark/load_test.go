@@ -3,6 +3,7 @@ package benchmark
 import (
 	"math"
 	"os"
+	"strconv"
 	"testing"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
@@ -91,9 +92,30 @@ func TestBench(t *testing.T) {
 		}
 	}
 
-	kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
-		Name:          "benchmark_test",
-		SchemaFiles:   []string{},
-		FunctionTests: functionTests,
-	})
+	// let's chunk tests into groups of 10, becuase these tests are very long
+	// and postgres may fail during the test
+	groupsOfTests := chunk(functionTests, 10)
+
+	for i, groupOfTests := range groupsOfTests {
+		kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
+			Name:          "benchmark_test_" + strconv.Itoa(i),
+			SchemaFiles:   []string{},
+			FunctionTests: groupOfTests,
+		})
+	}
+}
+
+func chunk[T any](arr []T, chunkSize int) [][]T {
+	var result [][]T
+
+	for i := 0; i < len(arr); i += chunkSize {
+		end := i + chunkSize
+		if end > len(arr) {
+			end = len(arr)
+		}
+
+		result = append(result, arr[i:end])
+	}
+
+	return result
 }
