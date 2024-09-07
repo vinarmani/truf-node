@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/kwilteam/kwil-db/common"
 	kwiltypes "github.com/kwilteam/kwil-db/core/types"
 	"github.com/kwilteam/kwil-db/core/utils"
@@ -17,6 +18,7 @@ import (
 	"github.com/truflation/tsn-db/internal/contracts"
 	"github.com/truflation/tsn-sdk/core/types"
 	"github.com/truflation/tsn-sdk/core/util"
+	"golang.org/x/sync/errgroup"
 )
 
 type SetupSchemasInput struct {
@@ -32,30 +34,69 @@ func setupSchemas(
 ) error {
 	deployerAddress := MustNewEthereumAddressFromBytes(platform.Deployer)
 
+	type schemaAndNode struct {
+		Schema *kwiltypes.Schema
+		Node   trees.TreeNode
+	}
+
+	// we make schemas parsing separate from the rest because it takes too much time and can be done in parallel
+	var schemasAndNodes []schemaAndNode
+
+	eg, grpCtx := errgroup.WithContext(ctx)
+
+	// Create a channel to safely collect results
+	resultChan := make(chan schemaAndNode, len(input.Tree.Nodes))
+
 	for _, node := range input.Tree.Nodes {
-		var schema *kwiltypes.Schema
-		var err error
-		if node.IsLeaf {
-			schema, err = parse.Parse(contracts.PrimitiveStreamContent)
-			if err != nil {
-				return errors.Wrap(err, "failed to parse primitive stream")
+		node := node // Create a new variable to avoid closure issues
+		eg.Go(func() error {
+			var schema *kwiltypes.Schema
+			var err error
+			if node.IsLeaf {
+				schema, err = parse.Parse(contracts.PrimitiveStreamContent)
+				if err != nil {
+					return errors.Wrap(err, "failed to parse primitive stream")
+				}
+			} else {
+				schema, err = parse.Parse(contracts.ComposedStreamContent)
+				if err != nil {
+					return errors.Wrap(err, "failed to parse composed stream")
+				}
 			}
-		} else {
-			schema, err = parse.Parse(contracts.ComposedStreamContent)
-			if err != nil {
-				return errors.Wrap(err, "failed to parse composed stream")
+
+			schema.Name = getStreamId(node.Index).String()
+			select {
+			case <-grpCtx.Done():
+				return grpCtx.Err()
+			case resultChan <- schemaAndNode{
+				Schema: schema,
+				Node:   node,
+			}:
 			}
-		}
+			return nil
+		})
+	}
 
-		schema.Name = getStreamId(node.Index).String()
+	// Wait for all goroutines to complete
+	if err := eg.Wait(); err != nil {
+		return err
+	}
 
-		if err := createAndInitializeSchema(ctx, platform, schema); err != nil {
+	// Collect results from the channel
+	close(resultChan)
+	schemasAndNodes = make([]schemaAndNode, 0, len(input.Tree.Nodes))
+	for result := range resultChan {
+		schemasAndNodes = append(schemasAndNodes, result)
+	}
+
+	for _, schema := range schemasAndNodes {
+		if err := createAndInitializeSchema(ctx, platform, schema.Schema); err != nil {
 			return errors.Wrap(err, "failed to create and initialize schema")
 		}
 
-		if err := setupSchema(ctx, platform, schema, setupSchemaInput{
+		if err := setupSchema(ctx, platform, schema.Schema, setupSchemaInput{
 			visibility: input.BenchmarkCase.Visibility,
-			treeNode:   node,
+			treeNode:   schema.Node,
 			days:       380, // to be sure we have more days to calculate change index
 			owner:      deployerAddress,
 		}); err != nil {
@@ -94,7 +135,6 @@ type setupSchemaInput struct {
 	visibility util.VisibilityEnum
 	days       int
 	owner      util.EthereumAddress
-	readerDbid string
 	treeNode   trees.TreeNode
 }
 
@@ -102,7 +142,7 @@ func setupSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kw
 	dbid := utils.GenerateDBID(schema.Name, input.owner.Bytes())
 
 	if input.visibility == util.PrivateVisibility {
-		if err := setVisibilityAndWhitelist(ctx, platform, dbid, input.readerDbid); err != nil {
+		if err := setVisibilityAndWhitelist(ctx, platform, dbid, input.treeNode); err != nil {
 			return errors.Wrap(err, "failed to set visibility and whitelist")
 		}
 	}
@@ -120,14 +160,16 @@ func setupSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kw
 	return nil
 }
 
-func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platform, dbid string, readerDbid string) error {
+func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platform, dbid string, treeNode trees.TreeNode) error {
+	parentStreamId := getStreamId(treeNode.Parent)
+	parentDbid := utils.GenerateDBID(parentStreamId.String(), platform.Deployer)
 	metadataToInsert := []struct {
 		key     string
 		val     string
 		valType string
 	}{
 		{string(types.ComposeVisibilityKey), strconv.Itoa(int(util.PrivateVisibility)), string(types.ComposeVisibilityKey.GetType())},
-		{string(types.AllowComposeStreamKey), readerDbid, string(types.AllowComposeStreamKey.GetType())},
+		{string(types.AllowComposeStreamKey), parentDbid, string(types.AllowComposeStreamKey.GetType())},
 		{string(types.ReadVisibilityKey), strconv.Itoa(int(util.PrivateVisibility)), string(types.ReadVisibilityKey.GetType())},
 		{string(types.AllowReadWalletKey), readerAddress.Address(), string(types.AllowReadWalletKey.GetType())},
 	}
@@ -150,10 +192,8 @@ func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platfo
 		}{string(types.AllowComposeStreamKey), streamId.String(), string(types.AllowComposeStreamKey.GetType())})
 	}
 
-	for _, m := range metadataToInsert {
-		if err := insertMetadata(ctx, platform, dbid, m.key, m.val, m.valType); err != nil {
-			return errors.Wrap(err, "failed to insert metadata")
-		}
+	if err := batchInsertMetadata(ctx, platform, dbid, 1, metadataToInsert); err != nil {
+		return errors.Wrap(err, "failed to insert metadata")
 	}
 	return nil
 }
@@ -191,19 +231,42 @@ func getMockStreamIds(n int) []util.StreamId {
 	return streamIds
 }
 
-func insertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid, key, val, valType string) error {
-	_, err := platform.Engine.Procedure(ctx, platform.DB, &common.ExecutionData{
-		Procedure: "insert_metadata",
-		Dataset:   dbid,
-		Args:      []any{key, val, valType},
-		TransactionData: common.TransactionData{
-			Signer: platform.Deployer,
-			TxID:   platform.Txid(),
-			Height: 0,
-		},
-	})
+func batchInsertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid string, height int, metadata []struct {
+	key     string
+	val     string
+	valType string
+}) error {
+	// Prepare the SQL statement for bulk insert
+	sqlStmt := "INSERT INTO metadata (row_id, metadata_key, value_i, value_f, value_b, value_s, value_ref, created_at) VALUES "
+	var values []string
+
+	for _, m := range metadata {
+		uuidVal := fmt.Sprintf("'%s'::uuid", uuid.New().String())
+		valueI, valueF, valueB, valueS, valueRef := "NULL", "NULL", "NULL", "NULL", "NULL"
+
+		switch m.valType {
+		case "int":
+			valueI = m.val
+		case "float":
+			valueF = m.val
+		case "bool":
+			valueB = m.val
+		case "string":
+			valueS = fmt.Sprintf("'%s'", m.val)
+		case "ref":
+			valueRef = fmt.Sprintf("LOWER('%s')", m.val)
+		}
+
+		values = append(values, fmt.Sprintf("(%s, '%s', %s, %s, %s, %s, %s, %d)",
+			uuidVal, m.key, valueI, valueF, valueB, valueS, valueRef, height))
+	}
+
+	sqlStmt += strings.Join(values, ", ")
+
+	// Execute the bulk insert
+	_, err := platform.Engine.Execute(ctx, platform.DB, dbid, sqlStmt, nil)
 	if err != nil {
-		return errors.Wrap(err, "failed to insert metadata")
+		return errors.Wrap(err, "failed to execute bulk insert for metadata")
 	}
 	return nil
 }
