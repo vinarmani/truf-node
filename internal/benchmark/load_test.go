@@ -76,7 +76,8 @@ func TestBench(t *testing.T) {
 		{100, math.MaxInt},
 		{200, math.MaxInt},
 		{400, math.MaxInt},
-		{800, math.MaxInt},
+		// 800 streams kills t3.small instances for memory starvation. But probably because it stores the whole tree in memory
+		//{800, math.MaxInt},
 		//{1500, math.MaxInt}, // this gives error: Out of shared memory
 
 		// deep trees = cost of adding depth
@@ -89,7 +90,7 @@ func TestBench(t *testing.T) {
 		{100, 8},
 		{200, 8},
 		{400, 8},
-		{800, 8},
+		//{800, 8},
 
 		// to get difference for branching factor
 		{200, 2},
