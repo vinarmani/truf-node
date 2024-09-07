@@ -205,24 +205,8 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 					jsii.String("export RESULTS_PATH=/tmp/results.csv"),
 					jsii.String("export LOG_RESULTS=false"),
 					jsii.String("cleanupCmd=\\'docker rm -f kwil-testing-postgres || true\\'"),
-					// assign running the benchmark to a variable so we can capture the output
-					// try to run the benchmark 3 times
-					jsii.String(`
-                    for i in {1..3}; do
-                        if ! /home/ec2-user/benchmark/benchmark; then
-                            $cleanupCmd
-							if [ $i -lt 3 ]; then
-								sleep 10
-								echo "Benchmark failed, retrying in 10 seconds"
-							else
-								echo "Benchmark failed after 3 attempts"
-								exit 1
-							fi
-                        else
-                            break
-                        fi
-                    done
-                    `),
+					// run the benchmark
+					jsii.String("/home/ec2-user/benchmark/benchmark"),
 					awsstepfunctions.JsonPath_Format(
 						jsii.String("aws s3 cp /tmp/results.csv s3://{}/{}_{}.csv"),
 						input.ResultsBucket.BucketName(),
