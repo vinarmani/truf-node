@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -91,8 +92,10 @@ type RunBenchmarkInput struct {
 	Samples    int
 }
 
-func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(ctx context.Context, platform *kwilTesting.Platform) error {
+// it returns a result channel to be accumulated by the caller
+func getBenchmarFn(benchmarkCase BenchmarkCase, resultCh *chan []Result) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
+		log.Println("running benchmark", benchmarkCase)
 		platform.Deployer = deployer.Bytes()
 
 		tree := trees.NewTree(trees.NewTreeInput{
@@ -115,6 +118,7 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 			printResults(results)
 		}
 
-		return saveResults(results, resultPath)
+		*resultCh <- results
+		return nil
 	}
 }

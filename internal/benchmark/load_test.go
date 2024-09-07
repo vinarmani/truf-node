@@ -1,18 +1,47 @@
 package benchmark
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"os"
+	"os/exec"
+	"os/signal"
 	"strconv"
 	"testing"
+	"time"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/pkg/errors"
 	"github.com/truflation/tsn-sdk/core/util"
 )
 
+// should execute docker", "rm", "-f", "kwil-testing-postgres
+func cleanupDocker() {
+	// Execute the cleanup command
+	cmd := exec.Command("docker", "rm", "-f", "kwil-testing-postgres")
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("Error during cleanup: %v\n", err)
+	}
+}
+
 // Main benchmark test function
 func TestBench(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	// notify on interrupt. Otherwise, tests will not stop
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for range c {
+			fmt.Println("interrupt signal received")
+			cleanupDocker()
+			cancel()
+		}
+	}()
+
 	// set default LOG_RESULTS to true
 	if os.Getenv("LOG_RESULTS") == "" {
 		os.Setenv("LOG_RESULTS", "true")
@@ -77,31 +106,79 @@ func TestBench(t *testing.T) {
 	visibilities := []util.VisibilityEnum{util.PublicVisibility, util.PrivateVisibility}
 
 	var functionTests []kwilTesting.TestFunc
+	// a channel to receive results from the tests
+	var resultsCh chan []Result
 
 	// create combinations of shapePairs and visibilities
 	for _, qtyStreams := range shapePairs {
 		for _, visibility := range visibilities {
-			functionTests = append(functionTests, getBenchmarkAndSaveFn(BenchmarkCase{
+			functionTests = append(functionTests, getBenchmarFn(BenchmarkCase{
 				Visibility:      visibility,
 				QtyStreams:      qtyStreams[0],
 				BranchingFactor: qtyStreams[1],
 				Samples:         samples,
 				Days:            days,
 				Procedures:      []ProcedureEnum{ProcedureGetRecord, ProcedureGetIndex, ProcedureGetChangeIndex},
-			}, resultPath))
+			},
+				// use pointer, so we can reassign the results channel
+				&resultsCh))
 		}
 	}
 
-	// let's chunk tests into groups of 10, becuase these tests are very long
+	// let's chunk tests into groups, becuase these tests are very long
 	// and postgres may fail during the test
-	groupsOfTests := chunk(functionTests, 10)
+	groupsOfTests := chunk(functionTests, 2)
+
+	var successResults []Result
 
 	for i, groupOfTests := range groupsOfTests {
-		kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
+		schemaTest := kwilTesting.SchemaTest{
 			Name:          "benchmark_test_" + strconv.Itoa(i),
 			SchemaFiles:   []string{},
 			FunctionTests: groupOfTests,
+		}
+
+		t.Run(schemaTest.Name, func(t *testing.T) {
+			const maxRetries = 3
+			var err error
+		RetryFor:
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				select {
+				case <-ctx.Done():
+					t.Fatalf("context cancelled")
+				default:
+					// wrap in a function so we can defer close the results channel
+					func() {
+						resultsCh = make(chan []Result, len(groupOfTests))
+						defer close(resultsCh)
+
+						err = schemaTest.Run(ctx, &kwilTesting.Options{
+							UseTestContainer: true,
+							Logger:           t,
+						})
+					}()
+
+					if err == nil {
+						successResults = append(successResults, <-resultsCh...)
+						// break the retries loop
+						break RetryFor
+					}
+
+					t.Logf("Attempt %d failed: %s", attempt, err)
+					if attempt < maxRetries {
+						time.Sleep(time.Second * time.Duration(attempt)) // Exponential backoff
+					}
+				}
+			}
+			if err != nil {
+				t.Fatalf("Test failed after %d attempts: %s", maxRetries, err)
+			}
 		})
+	}
+
+	// save results to file
+	if err := saveResults(successResults, resultPath); err != nil {
+		t.Fatalf("failed to save results: %s", err)
 	}
 }
 
