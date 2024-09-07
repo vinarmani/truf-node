@@ -106,7 +106,7 @@ func createStateMachine(scope constructs.Construct, input CreateStateMachineInpu
 
 	stateMachine := awsstepfunctions.NewStateMachine(scope, jsii.String("BenchmarkStateMachine"), &awsstepfunctions.StateMachineProps{
 		DefinitionBody: awsstepfunctions.DefinitionBody_FromChainable(benchmarkWorkflowChain),
-		Timeout:        awscdk.Duration_Hours(jsii.Number(6)),
+		Timeout:        awscdk.Duration_Hours(jsii.Number(TotalTimeout.Hours())),
 		// <stackname>-benchmark
 		StateMachineName: jsii.String(fmt.Sprintf("%s-benchmark", *awscdk.Aws_STACK_NAME())),
 	})
@@ -182,9 +182,8 @@ func createBenchmarkWorkflow(scope constructs.Construct, input CreateWorkflowInp
 			"InstanceIds": awsstepfunctions.JsonPath_Array(
 				awsstepfunctions.JsonPath_StringAt(jsii.String("$.ec2Instance.InstanceId")),
 			),
-			"DocumentName": jsii.String("AWS-RunShellScript"),
-			// 6 hours
-			"TimeoutSeconds": jsii.Number(6 * 60 * 60),
+			"DocumentName":   jsii.String("AWS-RunShellScript"),
+			"TimeoutSeconds": jsii.Number(TotalTimeout.Seconds()),
 			"CloudWatchOutputConfig": map[string]interface{}{
 				"CloudWatchLogGroupName":  commandLogGroup.LogGroupName(),
 				"CloudWatchOutputEnabled": true,
