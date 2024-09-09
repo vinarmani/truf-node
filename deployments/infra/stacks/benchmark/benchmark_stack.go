@@ -68,6 +68,8 @@ func BenchmarkStack(scope constructs.Construct, id string, props *awscdk.StackPr
 
 	// Add SSM managed policy
 	ec2InstanceRole.AddManagedPolicy(awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("AmazonSSMManagedInstanceCore")))
+	// Add CloudWatch managed policy
+	ec2InstanceRole.AddManagedPolicy(awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("CloudWatchAgentServerPolicy")))
 
 	// grant read permissions to the binary s3 asset
 	binaryS3Asset.GrantRead(ec2InstanceRole)

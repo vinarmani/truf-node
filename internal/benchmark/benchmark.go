@@ -3,10 +3,12 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	"github.com/kwilteam/kwil-db/core/utils"
+	"github.com/pkg/errors"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/truflation/tsn-db/internal/benchmark/trees"
@@ -21,7 +23,7 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 		Tree:          tree,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to setup schemas")
 	}
 
 	for _, day := range c.Days {
@@ -34,7 +36,7 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 				Tree:      tree,
 			})
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "failed to run single test")
 			}
 			results = append(results, result)
 		}
@@ -90,8 +92,10 @@ type RunBenchmarkInput struct {
 	Samples    int
 }
 
-func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(ctx context.Context, platform *kwilTesting.Platform) error {
+// it returns a result channel to be accumulated by the caller
+func getBenchmarFn(benchmarkCase BenchmarkCase, resultCh *chan []Result) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
+		log.Println("running benchmark", benchmarkCase)
 		platform.Deployer = deployer.Bytes()
 
 		tree := trees.NewTree(trees.NewTreeInput{
@@ -106,7 +110,7 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 
 		results, err := runBenchmark(ctx, platform, benchmarkCase, tree)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to run benchmark")
 		}
 
 		// if LOG_RESULTS is set, we print the results to the console
@@ -114,6 +118,7 @@ func getBenchmarkAndSaveFn(benchmarkCase BenchmarkCase, resultPath string) func(
 			printResults(results)
 		}
 
-		return saveResults(results, resultPath)
+		*resultCh <- results
+		return nil
 	}
 }

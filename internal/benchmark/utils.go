@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/apd/v3"
 	"github.com/kwilteam/kwil-db/common"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/pkg/errors"
 	"github.com/truflation/tsn-db/internal/benchmark/benchexport"
 	"github.com/truflation/tsn-sdk/core/util"
 	"golang.org/x/exp/constraints"
@@ -48,7 +49,10 @@ func executeStreamProcedure(ctx context.Context, platform *kwilTesting.Platform,
 			Height: 0,
 		},
 	})
-	return err
+	if err != nil {
+		return errors.Wrap(err, "failed to execute stream procedure")
+	}
+	return nil
 }
 
 // printResults outputs the benchmark results in a human-readable format.
@@ -94,7 +98,7 @@ func saveResults(results []Result, filePath string) error {
 	}
 	// Save as CSV
 	if err := benchexport.SaveOrAppendToCSV(savedResults, filePath); err != nil {
-		return err
+		return errors.Wrap(err, "failed to save results")
 	}
 
 	return nil
@@ -104,7 +108,7 @@ func deleteFileIfExists(filePath string) error {
 	// Delete the CSV file if it exists
 	if _, err := os.Stat(filePath); err == nil {
 		if err = os.Remove(filePath); err != nil {
-			return err
+			return errors.Wrap(err, "failed to delete file")
 		}
 	}
 
@@ -112,7 +116,7 @@ func deleteFileIfExists(filePath string) error {
 	mdFilePath := strings.Replace(filePath, ".csv", ".md", 1)
 	if _, err := os.Stat(mdFilePath); err == nil {
 		if err = os.Remove(mdFilePath); err != nil {
-			return err
+			return errors.Wrap(err, "failed to delete file")
 		}
 	}
 
@@ -136,7 +140,7 @@ func visibilityToString(visibility util.VisibilityEnum) string {
 func MustNewEthereumAddressFromString(s string) util.EthereumAddress {
 	addr, err := util.NewEthereumAddressFromString(s)
 	if err != nil {
-		panic(err)
+		panic(errors.Wrap(err, "failed to create EthereumAddress"))
 	}
 	return addr
 }
@@ -147,7 +151,7 @@ func MustNewEthereumAddressFromString(s string) util.EthereumAddress {
 func MustNewEthereumAddressFromBytes(b []byte) util.EthereumAddress {
 	addr, err := util.NewEthereumAddressFromBytes(b)
 	if err != nil {
-		panic(err)
+		panic(errors.Wrap(err, "failed to create EthereumAddress"))
 	}
 	return addr
 }
