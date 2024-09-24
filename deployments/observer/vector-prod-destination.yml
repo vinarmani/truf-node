@@ -1,0 +1,9 @@
+# Production destination for Vector, sends metrics to Datadog
+sinks:
+  datadog-destination:
+    type: datadog_metrics
+    inputs:
+      - hostmetrics
+    default_api_key: ${DATADOG_API_KEY}
+    default_namespace: ${DATADOG_NAMESPACE}
+    endpoint: ${DATADOG_ENDPOINT}
