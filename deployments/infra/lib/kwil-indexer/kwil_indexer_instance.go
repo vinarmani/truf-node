@@ -2,6 +2,7 @@ package kwil_indexer_instance
 
 import (
 	"fmt"
+
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsroute53"
@@ -45,6 +46,9 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 
 	// create a new elastic ip, because we need the ip before the instance is created
 	indexerElasticIp := awsec2.NewCfnEIP(scope, jsii.String("IndexerElasticIp"), &awsec2.CfnEIPProps{})
+
+	// give a name so we can identify the eip
+	indexerElasticIp.Tags().SetTag(jsii.String("Name"), jsii.String("IndexerElasticIp"), jsii.Number(10), jsii.Bool(true))
 
 	// Create an A record pointing to the Elastic IP, as EIP doesn't automatically create a DNS record
 	aRecord := awsroute53.NewARecord(scope, jsii.String("IndexerElasticIpDnsRecord"), &awsroute53.ARecordProps{
@@ -94,13 +98,8 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 		jsii.String("Allow ssh."),
 		jsii.Bool(false))
 
-	subnetType := awsec2.SubnetType_PUBLIC
-
 	// Get key-pair pointer.
-	var keyPair *string = nil
-	if len(config.KeyPairName(scope)) > 0 {
-		keyPair = jsii.String(config.KeyPairName(scope))
-	}
+	keyPair := awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KeyPair-ind"), jsii.String(config.KeyPairName(scope)))
 
 	indexerZippedDirPath := jsii.String("/home/ec2-user/kwil-indexer.zip")
 
@@ -112,16 +111,14 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 
 	// comes with pre-installed cloud init requirements
 	AWSLinux2MachineImage := awsec2.MachineImage_LatestAmazonLinux2(nil)
-	instance := awsec2.NewInstance(scope, jsii.String("IndexerInstance"), &awsec2.InstanceProps{
-		InstanceType: awsec2.InstanceType_Of(awsec2.InstanceClass_T3, indexerInstanceSize),
-		Init:         initData,
-		MachineImage: AWSLinux2MachineImage,
-		Vpc:          input.Vpc,
-		VpcSubnets: &awsec2.SubnetSelection{
-			SubnetType: subnetType,
-		},
+
+	// Create launch template
+	launchTemplate := awsec2.NewLaunchTemplate(scope, jsii.String("IndexerLaunchTemplate"), &awsec2.LaunchTemplateProps{
+		InstanceType:  awsec2.InstanceType_Of(awsec2.InstanceClass_T3, indexerInstanceSize),
+		MachineImage:  AWSLinux2MachineImage,
 		SecurityGroup: instanceSG,
-		KeyPair:       awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KeyPair-ind"), keyPair),
+		Role:          role,
+		KeyPair:       keyPair,
 		BlockDevices: &[]*awsec2.BlockDevice{
 			{
 				DeviceName: jsii.String("/dev/sda1"),
@@ -133,22 +130,23 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 		},
 	})
 
-	// Associate the elastic ip with the instance
-	awsec2.NewCfnEIPAssociation(scope, jsii.String("IndexerElasticIpAssociation"), &awsec2.CfnEIPAssociationProps{
-		InstanceId:   instance.InstanceId(),
-		AllocationId: indexerElasticIp.AttrAllocationId(),
+	// Attach init data to the launch template
+	initData.Attach(launchTemplate.Node().DefaultChild().(awsec2.CfnLaunchTemplate), &awsec2.AttachInitOptions{
+		InstanceRole: role,
+		UserData:     launchTemplate.UserData(),
+		Platform:     awsec2.OperatingSystemType_LINUX,
 	})
 
-	instance.AddUserData(utils.MountVolumeToPathAndPersist("nvme1n1", "/data")...)
-
-	AddKwilIndexerStartupScriptsToInstance(AddKwilIndexerStartupScriptsOptions{
+	scripts := AddKwilIndexerStartupScripts(AddKwilIndexerStartupScriptsOptions{
 		indexerZippedDirPath: indexerZippedDirPath,
 		TSNInstance:          input.TSNInstance,
-		IndexerInstance:      instance,
 	})
 
+	launchTemplate.UserData().AddCommands(scripts)
+
+	launchTemplate.UserData().AddCommands(utils.MountVolumeToPathAndPersist("nvme1n1", "/data")...)
+
 	return IndexerInstance{
-		Instance:        instance,
 		SecurityGroup:   instanceSG,
 		Role:            role,
 		InstanceDnsName: aRecord.DomainName(),
