@@ -22,15 +22,20 @@ import (
 type TsnStackProps struct {
 	certStackExports CertStackExports
 	clusterProvider  cluster.TSNClusterProvider
+	InitElements     []awsec2.InitElement
 }
 
-func TsnStack(stack awscdk.Stack, props *TsnStackProps) awscdk.Stack {
-	cdkParams := config.NewCDKParams(stack)
+type TsnStackOutput struct {
+	Stack           awscdk.Stack
+	TSNCluster      cluster.TSNCluster
+	Vpc             awsec2.IVpc
+	KGWInstance     kwil_gateway.KGWInstance
+	IndexerInstance kwil_indexer_instance.IndexerInstance
+	Params          config.CDKParams
+}
 
-	// if it's not being synthesized, return the stack
-	if !config.IsStackInSynthesis(stack) {
-		return stack
-	}
+func TsnStack(stack awscdk.Stack, props *TsnStackProps) TsnStackOutput {
+	cdkParams := config.NewCDKParams(stack)
 
 	// ## Pre-existing resources
 
@@ -92,6 +97,7 @@ func TsnStack(stack awscdk.Stack, props *TsnStackProps) awscdk.Stack {
 		Vpc:                   defaultVPC,
 		HostedZone:            hostedZone,
 		TSNConfigImageAsset:   tsnConfigImageAsset,
+		InitElements:          props.InitElements,
 	})
 
 	tsnComposeAsset.GrantRead(tsnCluster.Role)
@@ -111,6 +117,7 @@ func TsnStack(stack awscdk.Stack, props *TsnStackProps) awscdk.Stack {
 			ChainId:          jsii.String(config.GetEnvironmentVariables[config.MainEnvironmentVariables](stack).ChainId),
 			Nodes:            tsnCluster.Nodes,
 		},
+		InitElements: props.InitElements,
 	})
 
 	// add read permission to the kgw instance role
@@ -124,6 +131,7 @@ func TsnStack(stack awscdk.Stack, props *TsnStackProps) awscdk.Stack {
 		IndexerDirAsset: indexerDirectoryAsset,
 		Domain:          domain,
 		HostedZone:      hostedZone,
+		InitElements:    props.InitElements,
 	})
 
 	// add read permission to the indexer instance role
@@ -178,5 +186,12 @@ func TsnStack(stack awscdk.Stack, props *TsnStackProps) awscdk.Stack {
 		Value: stack.Region(),
 	})
 
-	return stack
+	return TsnStackOutput{
+		Stack:           stack,
+		TSNCluster:      tsnCluster,
+		Vpc:             defaultVPC,
+		KGWInstance:     kgwInstance,
+		IndexerInstance: indexerInstance,
+		Params:          cdkParams,
+	}
 }
