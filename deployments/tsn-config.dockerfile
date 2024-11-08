@@ -20,6 +20,16 @@ COPY $EXTERNAL_CONFIG_PATH /root/.kwild
 
 CMD ["sh", "-c", "echo 'Configuration copied'"]
 
+FROM golang:1.22.1-alpine3.19 AS build-kwil
+
+WORKDIR /app
+
+# copy download the kwil binaries to container
+COPY ./scripts/download-binaries.sh ./scripts/download-binaries.sh
+RUN chmod +x ./scripts/download-binaries.sh
+#download kwil binaries to extract kwil-admin
+RUN sh ./scripts/download-binaries.sh
+
 FROM busybox:1.35.0-uclibc as created
 
 ARG CHAIN_ID=truflation-staging
@@ -30,7 +40,9 @@ WORKDIR /app
 # we don't want to overwrite any existing configuration
 RUN test ! -d /root/.kwild
 
-COPY  ./.build/kwil-admin /app/kwil-admin
+# Copy the kwil-admin binary from the pre-built stage in Dockerfile
+COPY --from=build-kwil /app/.build/kwil-admin /app/kwil-admin
+RUN chmod +x /app/kwil-admin
 
 # create entrypoint file
 RUN echo "#!/bin/sh" > /app/entrypoint.sh
