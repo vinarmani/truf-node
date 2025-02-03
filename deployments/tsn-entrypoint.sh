@@ -7,6 +7,6 @@
 exec /app/kwild --root-dir $CONFIG_PATH \
        --app.jsonrpc-listen-addr "0.0.0.0:8484"\
        --app.db-read-timeout "60s"\
-       --app.snapshots.enabled\
+       --app.snapshots.enable\
        --chain.p2p.listen-addr "tcp://0.0.0.0:26656"\
        --chain.rpc.listen-addr "tcp://0.0.0.0:26657"
