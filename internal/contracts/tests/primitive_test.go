@@ -27,14 +27,15 @@ func TestPrimitiveStream(t *testing.T) {
 	kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
 		Name: "primitive_test",
 		FunctionTests: []kwilTesting.TestFunc{
-			WithPrimitiveTestSetup(testInsertAndGetRecord(t)),
+			WithPrimitiveTestSetup(testPRIMITIVE01_InsertAndGetRecord(t)),
+			WithPrimitiveTestSetup(testPRIMITIVE02_UnauthorizedInserts(t)),
 			WithPrimitiveTestSetup(testGetIndex(t)),
 			WithPrimitiveTestSetup(testGetIndexChange(t)),
 			WithPrimitiveTestSetup(testGetFirstRecord(t)),
 			WithPrimitiveTestSetup(testDuplicateDate(t)),
-			WithPrimitiveTestSetup(testGetRecordWithBaseDate(t)),
+			WithPrimitiveTestSetup(testPRIMITIVE04GetRecordWithBaseDate(t)),
 			WithPrimitiveTestSetup(testFrozenDataRetrieval(t)),
-			WithPrimitiveTestSetup(testUnauthorizedInserts(t)),
+			WithPrimitiveTestSetup(testPRIMITIVE03_SetReadOnlyMetadataToPrimitiveStream(t)),
 		},
 	})
 }
@@ -72,7 +73,7 @@ func WithPrimitiveTestSetup(testFn func(ctx context.Context, platform *kwilTesti
 	}
 }
 
-func testInsertAndGetRecord(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+func testPRIMITIVE01_InsertAndGetRecord(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
 		dbid := utils.GenerateDBID(primitiveStreamId.String(), platform.Deployer)
 
@@ -284,7 +285,7 @@ func testDuplicateDate(t *testing.T) func(ctx context.Context, platform *kwilTes
 	}
 }
 
-func testGetRecordWithBaseDate(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+func testPRIMITIVE04GetRecordWithBaseDate(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
 		dbid := utils.GenerateDBID(primitiveStreamId.String(), platform.Deployer)
 
@@ -415,7 +416,7 @@ func testFrozenDataRetrieval(t *testing.T) func(ctx context.Context, platform *k
 	}
 }
 
-func testUnauthorizedInserts(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+func testPRIMITIVE02_UnauthorizedInserts(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
 		// Change deployer to a non-authorized wallet
 		unauthorizedWallet := util.Unsafe_NewEthereumAddressFromString("0x9999999999999999999999999999999999999999")
@@ -443,6 +444,24 @@ func testUnauthorizedInserts(t *testing.T) func(ctx context.Context, platform *k
 		assert.Error(t, err, "Unauthorized wallet should not be able to insert records")
 		assert.Contains(t, err.Error(), "wallet not allowed to write", "Expected permission error")
 
+		return nil
+	}
+}
+
+func testPRIMITIVE03_SetReadOnlyMetadataToPrimitiveStream(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+	return func(ctx context.Context, platform *kwilTesting.Platform) error { // Change deployer to a non-authorized wallet
+		dbid := utils.GenerateDBID(primitiveStreamId.String(), platform.Deployer)
+
+		// Attempt to set metadata
+		err := procedure.SetMetadata(ctx, procedure.SetMetadataInput{
+			Platform: platform,
+			DBID:     dbid,
+			Key:      "type",
+			Value:    "other",
+			ValType:  "string",
+			Height:   0,
+		})
+		assert.Error(t, err, "Cannot insert metadata for read-only key")
 		return nil
 	}
 }
