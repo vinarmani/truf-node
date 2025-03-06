@@ -1,4 +1,4 @@
-CREATE ACTION create_stream(
+CREATE OR REPLACE ACTION create_stream(
     $stream_id TEXT,
     $stream_type TEXT
 ) PUBLIC {

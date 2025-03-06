@@ -4,7 +4,7 @@
     The intention of this file is to store only tables and constraints that will be used on TN bootstrap.
     Actions should be added in separate files for better readability.
  */
-CREATE TABLE streams (
+CREATE TABLE IF NOT EXISTS streams (
     stream_id TEXT NOT NULL,
     data_provider TEXT NOT NULL,
     stream_type TEXT NOT NULL,
@@ -21,9 +21,9 @@ CREATE TABLE streams (
 );
 
 -- Create indexes separately
-CREATE INDEX stream_type_idx ON streams (stream_type);
+CREATE INDEX IF NOT EXISTS stream_type_idx ON streams (stream_type);
 
-CREATE TABLE taxonomies (
+CREATE TABLE IF NOT EXISTS taxonomies (
     data_provider TEXT NOT NULL,
     stream_id TEXT NOT NULL,
     taxonomy_id UUID NOT NULL,
@@ -50,26 +50,26 @@ CREATE TABLE taxonomies (
 );
 
 -- Create indexes separately
-CREATE INDEX child_stream_idx ON taxonomies (data_provider, stream_id, start_ts, version, child_data_provider, child_stream_id);
+CREATE INDEX IF NOT EXISTS child_stream_idx ON taxonomies (data_provider, stream_id, start_ts, version, child_data_provider, child_stream_id);
 
-CREATE TABLE primitive_events (
+CREATE TABLE IF NOT EXISTS primitive_events (
     stream_id TEXT NOT NULL,
     data_provider TEXT NOT NULL,
-    ts INT8 NOT NULL,     -- unix timestamp
+    date_ts INT8 NOT NULL,     -- unix timestamp
     value NUMERIC(36, 18) NOT NULL,
     created_at INT8 NOT NULL, -- based on blockheight
 
-    PRIMARY KEY (data_provider, stream_id, ts, created_at),
+    PRIMARY KEY (data_provider, stream_id, date_ts, created_at),
     FOREIGN KEY (data_provider, stream_id)
         REFERENCES streams(data_provider, stream_id)
         ON DELETE CASCADE
 );
 
 -- Create indexes separately
-CREATE INDEX ts_idx ON primitive_events (ts);
-CREATE INDEX created_at_idx ON primitive_events (created_at);
+CREATE INDEX IF NOT EXISTS ts_idx ON primitive_events (date_ts);
+CREATE INDEX IF NOT EXISTS created_at_idx ON primitive_events (created_at);
 
-CREATE TABLE metadata (
+CREATE TABLE IF NOT EXISTS metadata (
     row_id UUID NOT NULL,
     data_provider TEXT NOT NULL,
     stream_id TEXT NOT NULL,
@@ -90,8 +90,8 @@ CREATE TABLE metadata (
 
 -- Create indexes separately
 -- for fetching a specific stream's key-value pairs, or just the latest
-CREATE INDEX stream_key_created_idx ON metadata (data_provider, stream_id, metadata_key, created_at);
+CREATE INDEX IF NOT EXISTS stream_key_created_idx ON metadata (data_provider, stream_id, metadata_key, created_at);
 -- for fetching a specific stream's key-value pairs by reference
-CREATE INDEX stream_ref_idx ON metadata (data_provider, stream_id, metadata_key, value_ref);
+CREATE INDEX IF NOT EXISTS stream_ref_idx ON metadata (data_provider, stream_id, metadata_key, value_ref);
 -- for fetching only by reference
-CREATE INDEX ref_idx ON metadata (metadata_key, value_ref, data_provider, stream_id);
+CREATE INDEX IF NOT EXISTS ref_idx ON metadata (metadata_key, value_ref, data_provider, stream_id);
