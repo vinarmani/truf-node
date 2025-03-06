@@ -3,7 +3,7 @@
     This file contains actions related to the primitive events stream.
 */
 
-CREATE ACTION insert_record(
+CREATE OR REPLACE ACTION insert_record(
     $stream_id TEXT,
     $ts INT8,
     $value NUMERIC(36,18)
@@ -16,8 +16,8 @@ CREATE ACTION insert_record(
         ERROR('wallet not allowed to write');
     }
 
-    -- Ensure that the stream/contract is initiated
-    if is_initiated() == false {
+    -- Ensure that the stream/contract is existent
+    if is_existent($stream_id) == false {
         ERROR('contract must be initiated');
     }
 
@@ -28,9 +28,10 @@ CREATE ACTION insert_record(
     VALUES ($stream_id, $data_provider, $ts, $value, $current_block);
 };
 
-CREATE ACTION is_initiated() PUBLIC view returns (result bool) {
-    -- Check if the contract/stream has been initiated by verifying metadata "type"
-    for $row in SELECT * FROM metadata WHERE metadata_key = 'type' LIMIT 1 {
+-- is_existent checks if the stream is existent
+CREATE OR REPLACE ACTION is_existent($data_provider TEXT, $stream_id TEXT) PUBLIC view returns (result bool) {
+    -- Check if the stream is initiated
+    for $row in SELECT * FROM metadata WHERE metadata_key = 'type' AND stream_id = $stream_id AND data_provider = $data_provider LIMIT 1 {
          return true;
     }
     return false;
@@ -38,7 +39,9 @@ CREATE ACTION is_initiated() PUBLIC view returns (result bool) {
 
 -- This action wraps metadata selection with pagination parameters.
 -- It supports ordering only by created_at ascending or descending.
-CREATE ACTION get_metadata(
+CREATE OR REPLACE ACTION get_metadata(
+    $data_provider TEXT,
+    $stream_id TEXT,
     $key TEXT,
     $only_latest BOOL,
     $ref TEXT,
@@ -72,17 +75,19 @@ CREATE ACTION get_metadata(
                   value_s,
                   value_ref,
                   created_at
-           FROM metadata
+        FROM metadata
            WHERE metadata_key = $key
-             AND disabled_at IS NULL
-             AND ($ref IS NULL OR LOWER(value_ref) = LOWER($ref))
-           ORDER BY
+            AND disabled_at IS NULL
+            AND ($ref IS NULL OR LOWER(value_ref) = LOWER($ref))
+            AND stream_id = $stream_id
+            AND data_provider = $data_provider
+       ORDER BY
                CASE WHEN $order_by = 'created_at DESC' THEN created_at END DESC,
                CASE WHEN $order_by = 'created_at ASC' THEN created_at END ASC
-           LIMIT $limit OFFSET $offset;
+       LIMIT $limit OFFSET $offset;
 };
 
-CREATE ACTION is_wallet_allowed_to_write(
+CREATE OR REPLACE ACTION is_wallet_allowed_to_write(
     $wallet TEXT,
     $limit INT,
     $offset INT,
