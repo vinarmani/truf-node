@@ -46,8 +46,8 @@ func ExecuteCreateStream(ctx context.Context, platform *kwilTesting.Platform, st
 }
 
 type InsertRecordInput struct {
-	Ts    int     `json:"ts"`
-	Value float32 `json:"value"`
+	DateTs int     `json:"date_ts"`
+	Value  float32 `json:"value"`
 }
 
 // ExecuteInsertRecord executes the create_stream procedure
@@ -77,7 +77,7 @@ func ExecuteInsertRecord(ctx context.Context, platform *kwilTesting.Platform, st
 
 	_, err := platform.Engine.Call(engineContext, platform.DB, "", "insert_record", []any{
 		streamID,
-		input.Ts,
+		input.DateTs,
 		input.Value, // TODO: convert to numeric(36, 18) for now will cause an error as there is no documentation on how to pass numeric values
 	}, func(row *common.Row) error {
 		return nil

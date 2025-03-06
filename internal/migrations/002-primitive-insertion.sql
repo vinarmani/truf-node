@@ -5,14 +5,14 @@
 
 CREATE OR REPLACE ACTION insert_record(
     $stream_id TEXT,
-    $ts INT8,
+    $date_ts INT8,
     $value NUMERIC(36,18)
 ) PUBLIC {
     -- Get the caller's address as the data provider
     $data_provider TEXT := @caller;
 
     -- Ensure the wallet is allowed to write
-    if is_wallet_allowed_to_write($data_provider, 1, 0, 'created_at DESC') == false {
+    if is_wallet_allowed_to_write($data_provider) == false {
         ERROR('wallet not allowed to write');
     }
 
@@ -24,8 +24,8 @@ CREATE OR REPLACE ACTION insert_record(
     $current_block INT := @height;
 
     -- Insert the new record into the primitive_events table
-    INSERT INTO primitive_events (stream_id, data_provider, ts, value, created_at)
-    VALUES ($stream_id, $data_provider, $ts, $value, $current_block);
+    INSERT INTO primitive_events (stream_id, data_provider, date_ts, value, created_at)
+    VALUES ($stream_id, $data_provider, $date_ts, $value, $current_block);
 };
 
 -- is_existent checks if the stream is existent
@@ -88,22 +88,8 @@ CREATE OR REPLACE ACTION get_metadata(
 };
 
 CREATE OR REPLACE ACTION is_wallet_allowed_to_write(
-    $wallet TEXT,
-    $limit INT,
-    $offset INT,
-    $order_by TEXT
+    $wallet TEXT
 ) PUBLIC view returns (result bool) {
-    -- Set default pagination parameters if not provided
-    if $limit IS NULL{
-       $limit := 1;
-    }
-    if $offset IS NULL{
-       $offset := 0;
-    }
-    if $order_by IS NULL{
-       $order_by := 'created_at DESC';
-    }
-
     -- Check if the wallet is the stream owner
     for $row in SELECT * FROM metadata
                  WHERE metadata_key = 'stream_owner'
@@ -113,7 +99,7 @@ CREATE OR REPLACE ACTION is_wallet_allowed_to_write(
     }
 
     -- Check if the wallet is explicitly allowed to write via metadata permissions
-    for $row in get_metadata('allow_write_wallet', false, $wallet, $limit, $offset, $order_by) {
+    for $row in get_metadata('allow_write_wallet', false, $wallet, 1, 0, 'created_at DESC') {
          return true;
     }
 
