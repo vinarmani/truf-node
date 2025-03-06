@@ -5,7 +5,7 @@
 
 CREATE OR REPLACE ACTION insert_record(
     $stream_id TEXT,
-    $date_ts INT8,
+    $event_time INT8,
     $value NUMERIC(36,18)
 ) PUBLIC {
     -- Get the caller's address as the data provider
@@ -24,8 +24,8 @@ CREATE OR REPLACE ACTION insert_record(
     $current_block INT := @height;
 
     -- Insert the new record into the primitive_events table
-    INSERT INTO primitive_events (stream_id, data_provider, date_ts, value, created_at)
-    VALUES ($stream_id, $data_provider, $date_ts, $value, $current_block);
+    INSERT INTO primitive_events (stream_id, data_provider, event_time, value, created_at)
+    VALUES ($stream_id, $data_provider, $event_time, $value, $current_block);
 };
 
 -- is_existent checks if the stream is existent
