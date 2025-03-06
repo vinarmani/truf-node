@@ -1,5 +1,14 @@
 package tests
 
+import (
+	"context"
+	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	testutils "github.com/trufnetwork/node/tests/streams/utils"
+	"testing"
+)
+
 // import (
 // 	"context"
 // 	"testing"
@@ -23,24 +32,53 @@ package tests
 
 // var primitiveStreamId = util.GenerateStreamId(primitiveStreamName)
 
-// func TestPrimitiveStream(t *testing.T) {
-// 	kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
-// 		Name: "primitive_test",
-// 		FunctionTests: []kwilTesting.TestFunc{
-// 			WithPrimitiveTestSetup(testPRIMITIVE01_InsertAndGetRecord(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE07_GetRecordWithFutureDate(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE02_UnauthorizedInserts(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE05GetIndex(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE06GetIndexChange(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE07GetFirstRecord(t)),
-// 			WithPrimitiveTestSetup(testDuplicateDate(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE04GetRecordWithBaseDate(t)),
-// 			WithPrimitiveTestSetup(testFrozenDataRetrieval(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE03_SetReadOnlyMetadataToPrimitiveStream(t)),
-// 			WithPrimitiveTestSetup(testPRIMITIVE08_AdditionalInsertWillFetchLatestRecord(t)),
-// 		},
-// 	})
-// }
+func TestPrimitiveStream(t *testing.T) {
+	kwilTesting.RunSchemaTest(t, kwilTesting.SchemaTest{
+		Name: "primitive_test",
+		SeedScripts: []string{
+			"../../internal/migrations/000-initial-data.sql",
+			"../../internal/migrations/001-common-actions.sql",
+			"../../internal/migrations/002-primitive-insertion.sql",
+		},
+		FunctionTests: []kwilTesting.TestFunc{
+			testPRIMITIVE01_DataInsertion(t),
+			//WithPrimitiveTestSetup(testPRIMITIVE01_InsertAndGetRecord(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE07_GetRecordWithFutureDate(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE02_UnauthorizedInserts(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE05GetIndex(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE06GetIndexChange(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE07GetFirstRecord(t)),
+			//WithPrimitiveTestSetup(testDuplicateDate(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE04GetRecordWithBaseDate(t)),
+			//WithPrimitiveTestSetup(testFrozenDataRetrieval(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE03_SetReadOnlyMetadataToPrimitiveStream(t)),
+			//WithPrimitiveTestSetup(testPRIMITIVE08_AdditionalInsertWillFetchLatestRecord(t)),
+		},
+	}, testutils.GetTestOptions())
+}
+
+func testPRIMITIVE01_DataInsertion(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+	return func(ctx context.Context, platform *kwilTesting.Platform) error {
+		validAddress := "0x0000000000000000000000000000000000000001"
+		err := testutils.ExecuteCreateStream(ctx, platform, "st123456789012345678901234567890", "primitive", validAddress)
+		if err != nil {
+			return errors.Wrap(err, "valid address should be accepted")
+		}
+		assert.NoError(t, err, "valid address should be accepted")
+
+		// Setup initial data
+		err = testutils.ExecuteInsertRecord(ctx, platform, "st123456789012345678901234567890", testutils.InsertRecordInput{
+			Ts:    1612137600,
+			Value: 1,
+		}, validAddress)
+		if err != nil {
+			return errors.Wrap(err, "error inserting initial data")
+		}
+		assert.NoError(t, err, "error inserting initial data")
+
+		return nil
+	}
+}
 
 // func WithPrimitiveTestSetup(testFn func(ctx context.Context, platform *kwilTesting.Platform) error) func(ctx context.Context, platform *kwilTesting.Platform) error {
 // 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
