@@ -3,7 +3,10 @@ package testutils
 import (
 	"context"
 	"github.com/kwilteam/kwil-db/common"
+	"github.com/kwilteam/kwil-db/core/types"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/pkg/errors"
+	"strconv"
 )
 
 func Ptr[T any](v T) *T {
@@ -47,7 +50,7 @@ func ExecuteCreateStream(ctx context.Context, platform *kwilTesting.Platform, st
 
 type InsertRecordInput struct {
 	DateTs int     `json:"date_ts"`
-	Value  float32 `json:"value"`
+	Value  float64 `json:"value"`
 }
 
 // ExecuteInsertRecord executes the create_stream procedure
@@ -75,10 +78,18 @@ func ExecuteInsertRecord(ctx context.Context, platform *kwilTesting.Platform, st
 		TxContext: txContext,
 	}
 
-	_, err := platform.Engine.Call(engineContext, platform.DB, "", "insert_record", []any{
+	// create a decimal of type NUMERIC(10, 5)
+
+	valueStr := strconv.FormatFloat(input.Value, 'f', -1, 32)
+	valueDecimal, err := types.ParseDecimalExplicit(valueStr, 36, 18)
+	if err != nil {
+		return errors.Wrap(err, "failed to parse value as decimal")
+	}
+
+	_, err = platform.Engine.Call(engineContext, platform.DB, "", "insert_record", []any{
 		streamID,
 		input.DateTs,
-		input.Value, // TODO: convert to numeric(36, 18) for now will cause an error as there is no documentation on how to pass numeric values
+		valueDecimal,
 	}, func(row *common.Row) error {
 		return nil
 	})

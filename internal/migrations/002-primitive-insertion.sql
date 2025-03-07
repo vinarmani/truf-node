@@ -17,7 +17,7 @@ CREATE OR REPLACE ACTION insert_record(
     }
 
     -- Ensure that the stream/contract is existent
-    if is_existent($stream_id) == false {
+    if is_existent($data_provider, $stream_id) == false {
         ERROR('contract must be initiated');
     }
 
@@ -91,11 +91,12 @@ CREATE OR REPLACE ACTION is_wallet_allowed_to_write(
     $wallet TEXT
 ) PUBLIC view returns (result bool) {
     -- Check if the wallet is the stream owner
-    for $row in SELECT * FROM metadata
-                 WHERE metadata_key = 'stream_owner'
-                   AND value_ref = LOWER($wallet)
-                 LIMIT $limit OFFSET $offset {
-         return true;
+    for $row in
+        SELECT * FROM metadata
+        WHERE metadata_key = 'stream_owner'
+        AND value_ref = LOWER($wallet)
+        AND disabled_at IS NULL {
+            return true;
     }
 
     -- Check if the wallet is explicitly allowed to write via metadata permissions

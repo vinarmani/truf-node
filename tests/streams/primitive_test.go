@@ -69,7 +69,7 @@ func testPRIMITIVE01_DataInsertion(t *testing.T) func(ctx context.Context, platf
 		// Setup initial data
 		err = testutils.ExecuteInsertRecord(ctx, platform, "st123456789012345678901234567890", testutils.InsertRecordInput{
 			DateTs: 1612137600,
-			Value:  1,
+			Value:  1.5,
 		}, validAddress)
 		if err != nil {
 			return errors.Wrap(err, "error inserting initial data")
