@@ -1,92 +1,88 @@
 package setup
 
-// import (
-// 	"context"
+import (
+	"context"
 
-// 	"github.com/pkg/errors"
+	"github.com/kwilteam/kwil-db/common"
+	kwilTesting "github.com/kwilteam/kwil-db/testing"
+	"github.com/trufnetwork/sdk-go/core/types"
+)
 
-// 	"github.com/kwilteam/kwil-db/common"
-// 	"github.com/kwilteam/kwil-db/core/utils"
-// 	"github.com/kwilteam/kwil-db/parse"
-// 	kwilTesting "github.com/kwilteam/kwil-db/testing"
-// 	"github.com/trufnetwork/sdk-go/core/util"
-// )
+type ContractType string
 
-// type ContractType string
+const (
+	ContractTypePrimitive ContractType = "primitive"
+	ContractTypeComposed  ContractType = "composed"
+)
 
-// const (
-// 	ContractTypePrimitive ContractType = "primitive"
-// 	ContractTypeComposed  ContractType = "composed"
-// )
+type StreamInfo struct {
+	Locator types.StreamLocator
+	Type    ContractType
+}
 
-// type ContractInfo struct {
-// 	Name     string
-// 	StreamID util.StreamId
-// 	Deployer util.EthereumAddress
-// 	Content  []byte
-// 	Type     ContractType
-// }
+func (contractType ContractType) String() string {
+	return string(contractType)
+}
 
-// type InitializeContractInput struct {
-// 	Platform *kwilTesting.Platform
-// 	Deployer util.EthereumAddress
-// 	Dbid     string
-// 	Height   int64
-// }
+// CreateStream parses and creates the dataset for a contract
+func CreateStream(ctx context.Context, platform *kwilTesting.Platform, contractInfo StreamInfo) (*common.CallResult, error) {
+	return UntypedCreateStream(ctx, platform, contractInfo.Locator.StreamId.String(), contractInfo.Locator.DataProvider.Address(), string(contractInfo.Type))
+}
 
-// func initializeContract(ctx context.Context, input InitializeContractInput) error {
-// 	txContext := &common.TxContext{
-// 		Ctx: ctx,
-// 		BlockContext: &common.BlockContext{
-// 			Height: input.Height,
-// 		},
-// 		TxID:   input.Platform.Txid(),
-// 		Signer: input.Deployer.Bytes(),
-// 		Caller: input.Deployer.Address(),
-// 	}
+func UntypedCreateStream(ctx context.Context, platform *kwilTesting.Platform, streamId string, dataProvider string, contractType string) (*common.CallResult, error) {
+	// Convert hex string to bytes for the signer
+	var signerBytes []byte
+	if len(dataProvider) > 2 {
+		// Remove 0x prefix if present
+		if dataProvider[:2] == "0x" {
+			signerBytes = []byte(dataProvider[2:])
+		} else {
+			signerBytes = []byte(dataProvider)
+		}
+	}
+	txContext := &common.TxContext{
+		Ctx:          ctx,
+		BlockContext: &common.BlockContext{Height: 0},
+		Signer:       signerBytes,
+		Caller:       dataProvider,
+		TxID:         platform.Txid(),
+	}
 
-// 	_, err := input.Platform.Engine.Procedure(txContext, input.Platform.DB, &common.ExecutionData{
-// 		Procedure: "init",
-// 		Dataset:   input.Dbid,
-// 		Args:      []any{},
-// 	})
-// 	return err
-// }
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
 
-// // SetupAndInitializeContract sets up and initializes a contract for testing.
-// func SetupAndInitializeContract(ctx context.Context, platform *kwilTesting.Platform, contractInfo ContractInfo) error {
-// 	if err := setupContract(ctx, platform, contractInfo); err != nil {
-// 		return err
-// 	}
-// 	dbid := GetDBID(contractInfo)
-// 	return initializeContract(ctx, InitializeContractInput{
-// 		Platform: platform,
-// 		Deployer: contractInfo.Deployer,
-// 		Dbid:     dbid,
-// 		Height:   0,
-// 	})
-// }
+	return platform.Engine.Call(engineContext,
+		platform.DB,
+		"",
+		"create_stream",
+		[]any{streamId, contractType},
+		func(row *common.Row) error {
+			return nil
+		},
+	)
+}
 
-// // setupContract parses and creates the dataset for a contract
-// func setupContract(ctx context.Context, platform *kwilTesting.Platform, contractInfo ContractInfo) error {
-// 	schema, err := parse.Parse(contractInfo.Content)
-// 	if err != nil {
-// 		return errors.Wrapf(err, "Failed to parse contract %s", contractInfo.Name)
-// 	}
-// 	schema.Name = contractInfo.StreamID.String()
+func DeleteStream(ctx context.Context, platform *kwilTesting.Platform, streamLocator types.StreamLocator) (*common.CallResult, error) {
+	txContext := &common.TxContext{
+		Ctx:          ctx,
+		BlockContext: &common.BlockContext{Height: 0},
+		Signer:       streamLocator.DataProvider.Bytes(),
+		Caller:       streamLocator.DataProvider.Address(),
+		TxID:         platform.Txid(),
+	}
 
-// 	txContext := &common.TxContext{
-// 		Ctx:          ctx,
-// 		BlockContext: &common.BlockContext{Height: 0},
-// 		Signer:       contractInfo.Deployer.Bytes(),
-// 		Caller:       contractInfo.Deployer.Address(),
-// 		TxID:         platform.Txid(),
-// 	}
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
 
-// 	return platform.Engine.CreateDataset(txContext, platform.DB, schema)
-// }
-
-// // GetDBID generates a DBID from contract info
-// func GetDBID(contractInfo ContractInfo) string {
-// 	return utils.GenerateDBID(contractInfo.StreamID.String(), contractInfo.Deployer.Bytes())
-// }
+	return platform.Engine.Call(engineContext,
+		platform.DB,
+		"",
+		"delete_stream",
+		[]any{streamLocator.StreamId.String()},
+		func(row *common.Row) error {
+			return nil
+		},
+	)
+}
