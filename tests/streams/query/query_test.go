@@ -120,7 +120,10 @@ func testQUERY01_InsertAndGetRecord(t *testing.T) func(ctx context.Context, plat
 		| 5          | 3     |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -155,7 +158,10 @@ func testQUERY06_GetRecordWithFutureDate(t *testing.T) func(ctx context.Context,
 		| 5          | 3     |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -194,7 +200,10 @@ func testQUERY02_GetIndex(t *testing.T) func(ctx context.Context, platform *kwil
 		| 5          | 300   |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -233,7 +242,10 @@ func testQUERY03_GetIndexChange(t *testing.T) func(ctx context.Context, platform
 		| 5          | -40   |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -266,7 +278,10 @@ func testQUERY05_GetFirstRecord(t *testing.T) func(ctx context.Context, platform
 		| 1          | 1     |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -317,7 +332,10 @@ func testQUERY07_DuplicateDate(t *testing.T) func(ctx context.Context, platform 
 		| 5          | 3     |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -361,7 +379,10 @@ func testQUERY01_GetRecordWithBaseDate(t *testing.T) func(ctx context.Context, p
 		| 5          | 75    |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
@@ -413,7 +434,10 @@ func testQUERY07_AdditionalInsertWillFetchLatestRecord(t *testing.T) func(ctx co
 		| 5          | 3     |
 		`
 
-		table.AssertResultRowsEqualMarkdownTable(t, result, expected)
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}
