@@ -62,6 +62,55 @@ func CheckReadAllPermissions(ctx context.Context, input CheckReadAllPermissionsI
 	return allowed, nil
 }
 
+type CheckComposeAllPermissionsInput struct {
+	Platform *kwilTesting.Platform
+	Locator  trufTypes.StreamLocator
+	Height   int64
+}
+
+// CheckComposeAllPermissions checks if a wallet is allowed to compose from all substreams of a stream
+func CheckComposeAllPermissions(ctx context.Context, input CheckComposeAllPermissionsInput) (bool, error) {
+	deployer, err := util.NewEthereumAddressFromBytes(input.Platform.Deployer)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to create Ethereum address from deployer bytes")
+	}
+
+	txContext := &common.TxContext{
+		Ctx:          ctx,
+		BlockContext: &common.BlockContext{Height: input.Height},
+		Signer:       input.Platform.Deployer,
+		Caller:       deployer.Address(),
+		TxID:         input.Platform.Txid(),
+	}
+
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
+
+	var allowed bool
+	r, err := input.Platform.Engine.Call(engineContext, input.Platform.DB, "", "is_allowed_to_compose_all", []any{
+		input.Locator.DataProvider.Address(),
+		input.Locator.StreamId.String(),
+		nil, // active_from, nil means no restriction
+		nil, // active_to, nil means no restriction
+	}, func(row *common.Row) error {
+		if len(row.Values) > 0 {
+			if val, ok := row.Values[0].(bool); ok {
+				allowed = val
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	if r.Error != nil {
+		return false, errors.Wrap(r.Error, "error in is_allowed_to_compose")
+	}
+
+	return allowed, nil
+}
+
 type CheckReadPermissionsInput struct {
 	Platform *kwilTesting.Platform
 	Locator  trufTypes.StreamLocator
@@ -163,10 +212,10 @@ func CheckWritePermissions(ctx context.Context, input CheckWritePermissionsInput
 }
 
 type CheckComposePermissionsInput struct {
-	Platform      *kwilTesting.Platform
-	Locator       trufTypes.StreamLocator
-	ForeignCaller string
-	Height        int64
+	Platform          *kwilTesting.Platform
+	Locator           trufTypes.StreamLocator
+	ComposingStreamId string
+	Height            int64
 }
 
 // CheckComposePermissions checks if a stream is allowed to compose from another stream
@@ -189,10 +238,12 @@ func CheckComposePermissions(ctx context.Context, input CheckComposePermissionsI
 	}
 
 	var allowed bool
-	r, err := input.Platform.Engine.Call(engineContext, input.Platform.DB, "", "is_stream_allowed_to_compose", []any{
+	r, err := input.Platform.Engine.Call(engineContext, input.Platform.DB, "", "is_allowed_to_compose", []any{
 		input.Locator.DataProvider.Address(),
 		input.Locator.StreamId.String(),
-		input.ForeignCaller,
+		input.ComposingStreamId,
+		nil,
+		nil,
 	}, func(row *common.Row) error {
 		if len(row.Values) > 0 {
 			if val, ok := row.Values[0].(bool); ok {
@@ -205,7 +256,7 @@ func CheckComposePermissions(ctx context.Context, input CheckComposePermissionsI
 		return false, err
 	}
 	if r.Error != nil {
-		return false, errors.Wrap(r.Error, "error in is_stream_allowed_to_compose")
+		return false, errors.Wrap(r.Error, "error in is_allowed_to_compose")
 	}
 
 	return allowed, nil
