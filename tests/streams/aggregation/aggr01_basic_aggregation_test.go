@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
@@ -154,17 +153,15 @@ func testAGGR01_BasicIndexAggregation(t *testing.T) func(ctx context.Context, pl
 		expected := `
 		| event_time | value |
 		|------------|-------|
-		| 1          | 20.000000000000000000 |
-		| 2          | 25.000000000000000000 |
-		| 3          | 30.000000000000000000 |
+		| 1          | 100.000000000000000000 |
+		| 2          | 125.000000000000000000 |
+		| 3          | 150.000000000000000000 |
 		`
 
-		fmt.Println("expected: ", expected)
-		fmt.Println("result: ", result)
-		//table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
-		//	Actual:   result,
-		//	Expected: expected,
-		//})
+		table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+			Actual:   result,
+			Expected: expected,
+		})
 
 		return nil
 	}

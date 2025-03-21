@@ -278,7 +278,7 @@ RETURNS TABLE(
     -- Get only the latest version of each event (if events were updated)
     -- Using subquery with window function avoids repeated correlated subqueries
     latest_events AS (
-        SELECT data_provider, stream_id, event_time, value 
+        SELECT data_provider, stream_id, event_time, value
         FROM (
             SELECT 
                 data_provider, 
@@ -396,8 +396,7 @@ CREATE OR REPLACE ACTION get_first_record_composed(
         $after := 0;
     }
 
-    -- Replicate the composed aggregation logic (using $after in place of $from)
-    WITH RECURSIVE
+    RETURN WITH RECURSIVE
     selected_taxonomy_versions AS (
         SELECT
             t.data_provider,
@@ -409,18 +408,19 @@ CREATE OR REPLACE ACTION get_first_record_composed(
         WHERE t.disabled_at IS NULL
           AND t.data_provider = $data_provider
           AND t.stream_id = $stream_id
-          AND t.start_time <= COALESCE($after, 9223372036854775000)
+          -- Use inline CASE so that if $after=0 we use max int8
+          AND t.start_time <= (CASE WHEN $after = 0 THEN 9223372036854775000::INT8 ELSE $after END)
           AND (
-            ($after IS NOT NULL AND t.start_time = (
-                SELECT MAX(start_time)
-                FROM taxonomies
-                WHERE data_provider = $data_provider
-                  AND stream_id = $stream_id
-                  AND disabled_at IS NULL
-                  AND start_time <= $after
-            ))
-                OR ($after IS NULL OR t.start_time > $after)
-            )
+              ($after <> 0 AND t.start_time = (
+                  SELECT MAX(start_time)
+                  FROM taxonomies
+                  WHERE data_provider = $data_provider
+                    AND stream_id = $stream_id
+                    AND disabled_at IS NULL
+                    AND start_time <= $after
+              ))
+              OR ($after = 0 OR t.start_time > $after)
+          )
     ),
     latest_versions AS (
         SELECT data_provider, stream_id, start_time, version
@@ -437,11 +437,11 @@ CREATE OR REPLACE ACTION get_first_record_composed(
             t.child_data_provider,
             t.child_stream_id
         FROM taxonomies t
-                 JOIN latest_versions lv
-                      ON t.data_provider = lv.data_provider
-                          AND t.stream_id = lv.stream_id
-                          AND t.start_time = lv.start_time
-                          AND t.version = lv.version
+        JOIN latest_versions lv
+          ON t.data_provider = lv.data_provider
+         AND t.stream_id = lv.stream_id
+         AND t.start_time = lv.start_time
+         AND t.version = lv.version
     ),
     main_versions AS (
         SELECT
@@ -449,11 +449,11 @@ CREATE OR REPLACE ACTION get_first_record_composed(
             stream_id,
             version_start,
             COALESCE(
-                    LEAD(version_start) OVER (
-                                                PARTITION BY data_provider, stream_id
-                        ORDER BY version_start
-                                        ) - 1,
-                    9223372036854775000
+                LEAD(version_start) OVER (
+                    PARTITION BY data_provider, stream_id
+                    ORDER BY version_start
+                ) - 1,
+                9223372036854775000
             ) AS version_end
         FROM all_taxonomies
         GROUP BY data_provider, stream_id, version_start
@@ -468,13 +468,13 @@ CREATE OR REPLACE ACTION get_first_record_composed(
             t.child_stream_id,
             t.weight
         FROM all_taxonomies t
-                 JOIN main_versions m
-                      ON t.data_provider = m.data_provider
-                          AND t.stream_id = m.stream_id
-                          AND t.start_time = m.version_start
+        JOIN main_versions m
+          ON t.data_provider = m.data_provider
+         AND t.stream_id = m.stream_id
+         AND t.version_start = m.version_start
     ),
     hierarchy AS (
-        -- Base case: direct children filtered by $after
+        -- Base case: direct children
         SELECT
             m.child_data_provider AS data_provider,
             m.child_stream_id AS stream_id,
@@ -484,25 +484,25 @@ CREATE OR REPLACE ACTION get_first_record_composed(
         FROM main_direct_children m
         WHERE m.data_provider = $data_provider
           AND m.stream_id = $stream_id
-          AND m.version_end >= COALESCE($after, 0)
-          AND m.version_start <= COALESCE($after, 9223372036854775000)
+          AND m.version_end >= $after
+          AND m.version_start <= 9223372036854775000
         UNION ALL
-        -- Recursive step: follow hierarchy down to primitive streams
+        -- Recursive step: multiply weights along the hierarchy
         SELECT
             c.child_data_provider,
             c.child_stream_id,
             (parent.raw_weight * c.weight)::NUMERIC(36,18) AS raw_weight,
-                GREATEST(parent.version_start, c.version_start) AS version_start,
+            GREATEST(parent.version_start, c.version_start) AS version_start,
             LEAST(parent.version_end, c.version_end) AS version_end
         FROM hierarchy parent
-                 INNER JOIN main_direct_children c
-                            ON c.data_provider = parent.data_provider
-                                AND c.stream_id = parent.stream_id
-                                AND c.version_start <= parent.version_end
-                                AND c.version_end >= parent.version_start
+        INNER JOIN main_direct_children c
+          ON c.data_provider = parent.data_provider
+         AND c.stream_id = parent.stream_id
+         AND c.version_start <= parent.version_end
+         AND c.version_end >= parent.version_start
         WHERE parent.version_start <= parent.version_end
-          AND c.version_end >= COALESCE($after, 0)
-          AND c.version_start <= COALESCE($after, 9223372036854775000)
+          AND c.version_end >= $after
+          AND c.version_start <= 9223372036854775000
     ),
     primitive_weights AS (
         SELECT h.*
@@ -515,7 +515,7 @@ CREATE OR REPLACE ACTION get_first_record_composed(
               AND tx.disabled_at IS NULL
               AND tx.start_time <= h.version_end
         )
-          AND h.version_start <= h.version_end
+        AND h.version_start <= h.version_end
     ),
     effective_streams AS (
         SELECT DISTINCT data_provider, stream_id
@@ -530,25 +530,27 @@ CREATE OR REPLACE ACTION get_first_record_composed(
                 FROM primitive_events pe
                 WHERE pe.data_provider = es.data_provider
                   AND pe.stream_id = es.stream_id
-                  AND ($after IS NOT NULL AND pe.event_time < $after)
+                  AND ($after <> 0 AND pe.event_time < $after)
                   AND ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
             ) AS event_time
         FROM effective_streams es
-        WHERE $after IS NOT NULL
+        WHERE $after <> 0
     ),
     query_times AS (
-        SELECT $after AS event_time WHERE $after IS NOT NULL
+        SELECT $after AS event_time WHERE $after <> 0
         UNION
         SELECT pe.event_time
         FROM primitive_events pe
         JOIN effective_streams es
-            ON pe.data_provider = es.data_provider
-            AND pe.stream_id = es.stream_id
-        WHERE ($after IS NULL OR pe.event_time >= $after)
-        AND ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
+          ON pe.data_provider = es.data_provider
+         AND pe.stream_id = es.stream_id
+        WHERE ($after = 0 OR pe.event_time >= $after)
+          AND ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
         GROUP BY pe.event_time
         UNION
-        SELECT ae.event_time FROM anchor_events ae WHERE ae.event_time IS NOT NULL
+        SELECT ae.event_time
+        FROM anchor_events ae
+        WHERE ae.event_time IS NOT NULL
     ),
     relevant_events AS (
         SELECT
@@ -606,7 +608,8 @@ CREATE OR REPLACE ACTION get_first_record_composed(
           ON le.data_provider = es.data_provider
          AND le.stream_id = es.stream_id
          AND le.event_time <= qt.event_time
-        WHERE ($after IS NULL OR qt.event_time >= $after)
+        WHERE ($after = 0 OR qt.event_time >= $after)
+          AND qt.event_time <= 9223372036854775000::INT8
         GROUP BY qt.event_time, es.data_provider, es.stream_id
     ),
     stream_values AS (
@@ -636,15 +639,18 @@ CREATE OR REPLACE ACTION get_first_record_composed(
     aggregated AS (
         SELECT
             event_time,
-            CASE WHEN SUM(raw_weight)::NUMERIC(36,18) = 0 THEN 0
+            CASE WHEN SUM(raw_weight)::NUMERIC(36,18) = 0::NUMERIC(36,18)
+                 THEN 0::NUMERIC(36,18)
                  ELSE SUM(weighted_value)::NUMERIC(36,18) / SUM(raw_weight)::NUMERIC(36,18)
             END AS value
         FROM weighted_values
         GROUP BY event_time
     )
-    SELECT event_time, value::NUMERIC(36,18)
+    SELECT
+        event_time,
+        value::NUMERIC(36,18)
     FROM aggregated
-    ORDER BY event_time ASC
+    ORDER BY event_time
     LIMIT 1;
 };
 
@@ -677,8 +683,6 @@ CREATE OR REPLACE ACTION get_base_value_composed(
     FOR $row IN get_record_composed($data_provider, $stream_id, $base_time, $base_time, $frozen_at) {
         RETURN $row.value;
     }
-
-    ERROR('No base value found');
 };
 
 /**
@@ -697,8 +701,10 @@ CREATE OR REPLACE ACTION get_index_composed(
     value NUMERIC(36,18)
 ) {
     $baseValue NUMERIC(36,18) := 0.0::NUMERIC(36,18);
-    $baseValue := get_base_value_composed($data_provider, $stream_id, $base_time, $frozen_at);
-    if $baseValue = 0 {
+    FOR $row IN get_base_value_composed($data_provider, $stream_id, $base_time, $frozen_at) {
+        $baseValue := $row.value;
+    }
+    if $baseValue = 0::NUMERIC(36,18) {
         ERROR('base value is 0');
     }
 
