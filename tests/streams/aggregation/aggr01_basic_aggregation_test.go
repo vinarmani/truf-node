@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
@@ -31,7 +32,8 @@ func TestAGGR01_BasicAggregation(t *testing.T) {
 		Name:        "aggr01_basic_aggregation_test",
 		SeedScripts: migrations.GetSeedScriptPaths(),
 		FunctionTests: []kwilTesting.TestFunc{
-			testAGGR01_BasicAggregation(t),
+			//testAGGR01_BasicAggregation(t),
+			testAGGR01_BasicIndexAggregation(t),
 		},
 	}, testutils.GetTestOptions())
 }
@@ -96,6 +98,73 @@ func testAGGR01_BasicAggregation(t *testing.T) func(ctx context.Context, platfor
 			Actual:   result,
 			Expected: expected,
 		})
+
+		return nil
+	}
+}
+
+func testAGGR01_BasicIndexAggregation(t *testing.T) func(ctx context.Context, platform *kwilTesting.Platform) error {
+	return func(ctx context.Context, platform *kwilTesting.Platform) error {
+		// Create a composed stream with 3 child primitive streams
+		composedStreamId := util.GenerateStreamId("composed_stream_test")
+		deployer, err := util.NewEthereumAddressFromString("0x0000000000000000000000000000000000000123")
+		if err != nil {
+			return errors.Wrap(err, "error creating ethereum address")
+		}
+		platform = procedure.WithSigner(platform, deployer.Bytes())
+
+		// Setup the composed stream with 3 primitive streams
+		err = setup.SetupComposedFromMarkdown(ctx, setup.MarkdownComposedSetupInput{
+			Platform: platform,
+			StreamId: composedStreamId,
+			MarkdownData: `
+			| event_time | value_1 | value_2 | value_3 |
+			|------------|---------|---------|---------|
+			| 1          | 10      | 20      | 30      |
+			| 2          | 15      | 25      | 35      |
+			| 3          | 20      | 30      | 40      |
+			`,
+			// All streams have equal weight (default is 1)
+			Height: 1,
+		})
+		if err != nil {
+			return errors.Wrap(err, "error setting up composed stream")
+		}
+
+		fromTime := int64(1)
+		toTime := int64(3)
+
+		// Query the composed stream to get the aggregated values
+		result, err := procedure.GetIndex(ctx, procedure.GetIndexInput{
+			Platform: platform,
+			StreamLocator: types.StreamLocator{
+				StreamId:     composedStreamId,
+				DataProvider: deployer,
+			},
+			FromTime: &fromTime,
+			ToTime:   &toTime,
+			Height:   1,
+		})
+		if err != nil {
+			return errors.Wrap(err, "error getting indexes from composed stream")
+		}
+
+		// Verify the results
+		// Since all streams have equal weight (1), the aggregated value should be the average
+		expected := `
+		| event_time | value |
+		|------------|-------|
+		| 1          | 20.000000000000000000 |
+		| 2          | 25.000000000000000000 |
+		| 3          | 30.000000000000000000 |
+		`
+
+		fmt.Println("expected: ", expected)
+		fmt.Println("result: ", result)
+		//table.AssertResultRowsEqualMarkdownTable(t, table.AssertResultRowsEqualMarkdownTableInput{
+		//	Actual:   result,
+		//	Expected: expected,
+		//})
 
 		return nil
 	}

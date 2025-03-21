@@ -22,7 +22,7 @@ RETURNS TABLE(
     $max_int8 := 9223372036854775000;  -- INT8 max for "infinity"
 
     -- Validate time range
-    IF $from IS NOT NULL AND $to IS NOT NULL AND $from > $to {
+    if $from IS NOT NULL AND $to IS NOT NULL AND $from > $to {
         ERROR(format('from: %s > to: %s', $from, $to));
     }
 
@@ -392,7 +392,260 @@ CREATE OR REPLACE ACTION get_first_record_composed(
     event_time INT8,
     value NUMERIC(36,18)
 ) {
-    ERROR('Composed stream query implementation is missing');
+    if $after IS NULL {
+        $after := 0;
+    }
+
+    -- Replicate the composed aggregation logic (using $after in place of $from)
+    WITH RECURSIVE
+    selected_taxonomy_versions AS (
+        SELECT
+            t.data_provider,
+            t.stream_id,
+            t.start_time,
+            t.version,
+            ROW_NUMBER() OVER (PARTITION BY t.start_time ORDER BY t.version DESC) AS rn
+        FROM taxonomies t
+        WHERE t.disabled_at IS NULL
+          AND t.data_provider = $data_provider
+          AND t.stream_id = $stream_id
+          AND t.start_time <= COALESCE($after, 9223372036854775000)
+          AND (
+            ($after IS NOT NULL AND t.start_time = (
+                SELECT MAX(start_time)
+                FROM taxonomies
+                WHERE data_provider = $data_provider
+                  AND stream_id = $stream_id
+                  AND disabled_at IS NULL
+                  AND start_time <= $after
+            ))
+                OR ($after IS NULL OR t.start_time > $after)
+            )
+    ),
+    latest_versions AS (
+        SELECT data_provider, stream_id, start_time, version
+        FROM selected_taxonomy_versions
+        WHERE rn = 1
+    ),
+    all_taxonomies AS (
+        SELECT
+            t.data_provider,
+            t.stream_id,
+            t.start_time AS version_start,
+            t.weight,
+            t.version,
+            t.child_data_provider,
+            t.child_stream_id
+        FROM taxonomies t
+                 JOIN latest_versions lv
+                      ON t.data_provider = lv.data_provider
+                          AND t.stream_id = lv.stream_id
+                          AND t.start_time = lv.start_time
+                          AND t.version = lv.version
+    ),
+    main_versions AS (
+        SELECT
+            data_provider,
+            stream_id,
+            version_start,
+            COALESCE(
+                    LEAD(version_start) OVER (
+                                                PARTITION BY data_provider, stream_id
+                        ORDER BY version_start
+                                        ) - 1,
+                    9223372036854775000
+            ) AS version_end
+        FROM all_taxonomies
+        GROUP BY data_provider, stream_id, version_start
+    ),
+    main_direct_children AS (
+        SELECT
+            t.data_provider,
+            t.stream_id,
+            m.version_start,
+            m.version_end,
+            t.child_data_provider,
+            t.child_stream_id,
+            t.weight
+        FROM all_taxonomies t
+                 JOIN main_versions m
+                      ON t.data_provider = m.data_provider
+                          AND t.stream_id = m.stream_id
+                          AND t.start_time = m.version_start
+    ),
+    hierarchy AS (
+        -- Base case: direct children filtered by $after
+        SELECT
+            m.child_data_provider AS data_provider,
+            m.child_stream_id AS stream_id,
+            m.weight AS raw_weight,
+            m.version_start,
+            m.version_end
+        FROM main_direct_children m
+        WHERE m.data_provider = $data_provider
+          AND m.stream_id = $stream_id
+          AND m.version_end >= COALESCE($after, 0)
+          AND m.version_start <= COALESCE($after, 9223372036854775000)
+        UNION ALL
+        -- Recursive step: follow hierarchy down to primitive streams
+        SELECT
+            c.child_data_provider,
+            c.child_stream_id,
+            (parent.raw_weight * c.weight)::NUMERIC(36,18) AS raw_weight,
+                GREATEST(parent.version_start, c.version_start) AS version_start,
+            LEAST(parent.version_end, c.version_end) AS version_end
+        FROM hierarchy parent
+                 INNER JOIN main_direct_children c
+                            ON c.data_provider = parent.data_provider
+                                AND c.stream_id = parent.stream_id
+                                AND c.version_start <= parent.version_end
+                                AND c.version_end >= parent.version_start
+        WHERE parent.version_start <= parent.version_end
+          AND c.version_end >= COALESCE($after, 0)
+          AND c.version_start <= COALESCE($after, 9223372036854775000)
+    ),
+    primitive_weights AS (
+        SELECT h.*
+        FROM hierarchy h
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM taxonomies tx
+            WHERE tx.data_provider = h.data_provider
+              AND tx.stream_id = h.stream_id
+              AND tx.disabled_at IS NULL
+              AND tx.start_time <= h.version_end
+        )
+          AND h.version_start <= h.version_end
+    ),
+    effective_streams AS (
+        SELECT DISTINCT data_provider, stream_id
+        FROM primitive_weights
+    ),
+    anchor_events AS (
+        SELECT
+            es.data_provider,
+            es.stream_id,
+            (
+                SELECT MAX(pe.event_time)
+                FROM primitive_events pe
+                WHERE pe.data_provider = es.data_provider
+                  AND pe.stream_id = es.stream_id
+                  AND ($after IS NOT NULL AND pe.event_time < $after)
+                  AND ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
+            ) AS event_time
+        FROM effective_streams es
+        WHERE $after IS NOT NULL
+    ),
+    query_times AS (
+        SELECT $after AS event_time WHERE $after IS NOT NULL
+        UNION
+        SELECT pe.event_time
+        FROM primitive_events pe
+        JOIN effective_streams es
+            ON pe.data_provider = es.data_provider
+            AND pe.stream_id = es.stream_id
+        WHERE ($after IS NULL OR pe.event_time >= $after)
+        AND ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
+        GROUP BY pe.event_time
+        UNION
+        SELECT ae.event_time FROM anchor_events ae WHERE ae.event_time IS NOT NULL
+    ),
+    relevant_events AS (
+        SELECT
+            pe.data_provider,
+            pe.stream_id,
+            pe.event_time,
+            pe.value,
+            pe.created_at
+        FROM primitive_events pe
+        JOIN effective_streams es
+          ON pe.data_provider = es.data_provider
+         AND pe.stream_id = es.stream_id
+        JOIN query_times qt
+          ON pe.event_time = qt.event_time
+        WHERE ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
+        UNION
+        SELECT
+            pe.data_provider,
+            pe.stream_id,
+            pe.event_time,
+            pe.value,
+            pe.created_at
+        FROM primitive_events pe
+        JOIN anchor_events ae
+          ON pe.data_provider = ae.data_provider
+         AND pe.stream_id = ae.stream_id
+         AND pe.event_time = ae.event_time
+        WHERE ($frozen_at IS NULL OR pe.created_at <= $frozen_at)
+    ),
+    latest_events AS (
+        SELECT data_provider, stream_id, event_time, value
+        FROM (
+            SELECT
+                data_provider,
+                stream_id,
+                event_time,
+                value,
+                ROW_NUMBER() OVER (
+                    PARTITION BY data_provider, stream_id, event_time
+                    ORDER BY created_at DESC
+                ) AS rn
+            FROM relevant_events
+        ) sub
+        WHERE rn = 1
+    ),
+    latest_event_times AS (
+        SELECT
+            qt.event_time AS query_time,
+            es.data_provider,
+            es.stream_id,
+            MAX(le.event_time) AS latest_event_time
+        FROM query_times qt
+        JOIN effective_streams es ON 1=1
+        LEFT JOIN latest_events le
+          ON le.data_provider = es.data_provider
+         AND le.stream_id = es.stream_id
+         AND le.event_time <= qt.event_time
+        WHERE ($after IS NULL OR qt.event_time >= $after)
+        GROUP BY qt.event_time, es.data_provider, es.stream_id
+    ),
+    stream_values AS (
+        SELECT
+            let.query_time AS event_time,
+            let.data_provider,
+            let.stream_id,
+            le.value
+        FROM latest_event_times let
+        LEFT JOIN latest_events le
+          ON le.data_provider = let.data_provider
+         AND le.stream_id = let.stream_id
+         AND le.event_time = let.latest_event_time
+    ),
+    weighted_values AS (
+        SELECT
+            sv.event_time,
+            (sv.value * pw.raw_weight)::NUMERIC(36,18) AS weighted_value,
+            pw.raw_weight
+        FROM stream_values sv
+        JOIN primitive_weights pw
+          ON sv.data_provider = pw.data_provider
+         AND sv.stream_id = pw.stream_id
+         AND sv.event_time BETWEEN pw.version_start AND pw.version_end
+        WHERE sv.value IS NOT NULL
+    ),
+    aggregated AS (
+        SELECT
+            event_time,
+            CASE WHEN SUM(raw_weight)::NUMERIC(36,18) = 0 THEN 0
+                 ELSE SUM(weighted_value)::NUMERIC(36,18) / SUM(raw_weight)::NUMERIC(36,18)
+            END AS value
+        FROM weighted_values
+        GROUP BY event_time
+    )
+    SELECT event_time, value::NUMERIC(36,18)
+    FROM aggregated
+    ORDER BY event_time ASC
+    LIMIT 1;
 };
 
 /**
@@ -405,7 +658,27 @@ CREATE OR REPLACE ACTION get_base_value_composed(
     $base_time INT8,
     $frozen_at INT8
 ) PRIVATE view returns (value NUMERIC(36,18)) {
-    ERROR('Composed stream query implementation is missing');
+    if $base_time IS NULL {
+        -- Return the very first record as base value
+        FOR $row IN get_first_record_composed($data_provider, $stream_id, 0, $frozen_at) {
+            RETURN $row.value;
+        }
+    }
+
+    -- I can't use OR for unknown reason in above if statement
+    if $base_time = 0 {
+        -- Return the very first record as base value
+        FOR $row IN get_first_record_composed($data_provider, $stream_id, 0, $frozen_at) {
+            RETURN $row.value;
+        }
+    }
+
+    -- Try to get a record
+    FOR $row IN get_record_composed($data_provider, $stream_id, $base_time, $base_time, $frozen_at) {
+        RETURN $row.value;
+    }
+
+    ERROR('No base value found');
 };
 
 /**
@@ -423,6 +696,13 @@ CREATE OR REPLACE ACTION get_index_composed(
     event_time INT8,
     value NUMERIC(36,18)
 ) {
-    ERROR('Composed stream query implementation is missing');
-};
+    $baseValue NUMERIC(36,18) := 0.0::NUMERIC(36,18);
+    $baseValue := get_base_value_composed($data_provider, $stream_id, $base_time, $frozen_at);
+    if $baseValue = 0 {
+        ERROR('base value is 0');
+    }
 
+    FOR $row IN get_record_composed($data_provider, $stream_id, $from, $to, $frozen_at) {
+        RETURN NEXT $row.event_time, ($row.value * 100::NUMERIC(36,18)) / $baseValue;
+    }
+};
