@@ -10,6 +10,7 @@ import (
 	kwilTypes "github.com/kwilteam/kwil-db/core/types"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/pkg/errors"
+	"github.com/trufnetwork/sdk-go/core/types"
 )
 
 func GetRecord(ctx context.Context, input GetRecordInput) ([]ResultRow, error) {
@@ -399,4 +400,100 @@ func GetCategoryStreams(ctx context.Context, input GetCategoryStreamsInput) ([]R
 	}
 
 	return processResultRows(resultRows)
+}
+
+// FilterStreamsByExistence filters streams based on existence, returning either existing or non-existing streams
+// based on the ReturnExisting flag in the input
+func FilterStreamsByExistence(ctx context.Context, input FilterStreamsByExistenceInput) ([]types.StreamLocator, error) {
+	deployer, err := util.NewEthereumAddressFromBytes(input.Platform.Deployer)
+	if err != nil {
+		return nil, errors.Wrap(err, "error in FilterStreamsByExistence")
+	}
+
+	txContext := &common.TxContext{
+		Ctx: ctx,
+		BlockContext: &common.BlockContext{
+			Height: input.Height,
+		},
+		TxID:   input.Platform.Txid(),
+		Signer: input.Platform.Deployer,
+		Caller: deployer.Address(),
+	}
+
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
+
+	dataProviders := []string{}
+	streamIds := []string{}
+	for _, streamLocator := range input.StreamLocators {
+		dataProviders = append(dataProviders, streamLocator.DataProvider.Address())
+		streamIds = append(streamIds, streamLocator.StreamId.String())
+	}
+
+	var resultRows []types.StreamLocator
+	r, err := input.Platform.Engine.Call(engineContext, input.Platform.DB, "", "filter_streams", []any{
+		dataProviders,
+		streamIds,
+		input.ExistingOnly,
+	}, func(row *common.Row) error {
+		// return [dataprovider, streamid][]
+		streamLocator := types.StreamLocator{}
+		streamLocator.DataProvider, err = util.NewEthereumAddressFromString(row.Values[0].(string))
+		if err != nil {
+			return errors.Wrap(err, "error in FilterStreamsByExistence")
+		}
+		streamId, err := util.NewStreamId(row.Values[1].(string))
+		if err != nil {
+			return errors.Wrap(err, "error in FilterStreamsByExistence")
+		}
+		streamLocator.StreamId = *streamId
+		resultRows = append(resultRows, streamLocator)
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "error in FilterStreamsByExistence")
+	}
+	if r.Error != nil {
+		return nil, errors.Wrap(r.Error, "error in FilterStreamsByExistence")
+	}
+
+	return resultRows, nil
+}
+
+func DisableTaxonomy(ctx context.Context, input DisableTaxonomyInput) error {
+	deployer, err := util.NewEthereumAddressFromBytes(input.Platform.Deployer)
+	if err != nil {
+		return errors.Wrap(err, "error in DisableTaxonomy")
+	}
+
+	txContext := &common.TxContext{
+		Ctx: ctx,
+		BlockContext: &common.BlockContext{
+			Height: input.Height,
+		},
+		TxID:   input.Platform.Txid(),
+		Signer: input.Platform.Deployer,
+		Caller: deployer.Address(),
+	}
+
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
+
+	r, err := input.Platform.Engine.Call(engineContext, input.Platform.DB, "", "disable_taxonomy", []any{
+		input.StreamLocator.DataProvider.Address(),
+		input.StreamLocator.StreamId.String(),
+		input.GroupSequence,
+	}, func(row *common.Row) error {
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "error in DisableTaxonomy")
+	}
+	if r.Error != nil {
+		return errors.Wrap(r.Error, "error in DisableTaxonomy")
+	}
+
+	return nil
 }

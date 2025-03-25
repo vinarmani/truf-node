@@ -48,6 +48,8 @@ CREATE OR REPLACE ACTION insert_taxonomy(
         $child_stream_id_value := $child_stream_ids[$i];
         $weight_value := $weights[$i];
 
+        $taxonomy_id := uuid_generate_kwil(@txid||$data_provider||$stream_id||$child_data_provider_value||$child_stream_id_value||$i::TEXT);
+
         INSERT INTO taxonomies (
             data_provider,
             stream_id,
@@ -62,7 +64,7 @@ CREATE OR REPLACE ACTION insert_taxonomy(
         ) VALUES (
             $data_provider,
             $stream_id,
-            uuid_generate_kwil(@txid||$i::TEXT), -- Generate a new UUID for the taxonomy.
+            $taxonomy_id,
             $child_data_provider_value,
             $child_stream_id_value,
             $weight_value,
@@ -156,3 +158,19 @@ CREATE OR REPLACE ACTION describe_taxonomies(
     }
 };
 
+CREATE OR REPLACE ACTION disable_taxonomy(
+    $data_provider TEXT,
+    $stream_id TEXT,
+    $group_sequence INT
+) PUBLIC {
+    -- Ensure the wallet is allowed to write
+    if is_wallet_allowed_to_write($data_provider, $stream_id, @caller) == false {
+        ERROR('wallet not allowed to write');
+    }
+
+    UPDATE taxonomies
+    SET disabled_at = @height
+    WHERE data_provider = $data_provider
+    AND stream_id = $stream_id
+    AND group_sequence = $group_sequence;
+};
