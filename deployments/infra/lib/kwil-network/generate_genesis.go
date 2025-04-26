@@ -2,15 +2,16 @@ package kwil_network
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"strconv"
+
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
 	"github.com/trufnetwork/node/infra/lib/kwil-network/peer"
 	"go.uber.org/zap"
-	"os"
-	"os/exec"
-	"strconv"
 )
 
 type GenerateGenesisFileInput struct {
@@ -23,13 +24,14 @@ type GenerateGenesisFileInput struct {
 // it does that by executing
 //   - create temp dir
 //   - generate complete config
-//     kwil-admin setup init -o <tmp-dir> --chain-id <chainId>
+//     kwild setup init --chain-id <chainId> --root <tmp-dir>
 //   - reading the genesis file inside it at <tmp-dir>/genesis.json
 //   - modifying the genesis file to include all peers as validators
 
 func GenerateGenesisFile(scope constructs.Construct, input GenerateGenesisFileInput) string {
 	// Create a temporary directory for the configuration
 	tempDir := awscdk.FileSystem_Mkdtemp(jsii.String("genesis-config"))
+	tempDir = jsii.String(*tempDir + "/config")
 
 	// Prepare Validators list
 	var validators []Validator
@@ -40,17 +42,19 @@ func GenerateGenesisFile(scope constructs.Construct, input GenerateGenesisFileIn
 			Name:   "validator-" + strconv.Itoa(i),
 		})
 	}
-	// Generate configuration using kwil-admin CLI
-	// kwil-admin setup init -o <tmp-dir> --chain-id <chainId>
+	// Generate configuration using kwild CLI
+	// kwild setup init --chain-id <chainId> --root <tmp-dir>
 	envVars := config.GetEnvironmentVariables[config.MainEnvironmentVariables](scope)
-	cmd := exec.Command(envVars.KwilAdminBinPath, "setup", "init",
+	cmd := exec.Command(envVars.KwildCliPath, "setup", "init",
 		"--chain-id", input.ChainId,
-		"-o", *tempDir,
+		"--root", *tempDir,
 	)
 
-	_, err := cmd.CombinedOutput()
+	// Run the kwild setup command, capturing stdout/stderr
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		zap.L().Panic("Failed to generate genesis file", zap.Error(err))
+		// Include the captured output for easier debugging
+		zap.L().Panic("Failed to generate genesis file", zap.Error(err), zap.String("output", string(output)))
 	}
 
 	// Read the genesis file

@@ -10,6 +10,7 @@ import (
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
+	domaincfg "github.com/trufnetwork/node/infra/config/domain"
 	kwil_gateway "github.com/trufnetwork/node/infra/lib/kwil-gateway"
 	kwil_indexer_instance "github.com/trufnetwork/node/infra/lib/kwil-indexer"
 	"github.com/trufnetwork/node/infra/lib/tsn/cluster"
@@ -22,17 +23,14 @@ type AttachObservabilityInput struct {
 }
 
 func AttachObservability(scope constructs.Construct, input *AttachObservabilityInput) {
-	// we've been using the same prefix for all observer params to facilitate
-	// the ability to attach the same policy to all observer instances
-	// if we plan to have different params for envs (dev, test, prod), we'll need to
-	// change this
+	// we've been using the same prefix for all observer params
 	paramsPrefix := "/tsn/observer/"
 
-	envName := config.GetDomainStage(scope)
-	// if it's empty, we assign prod domain
-	if envName == "" {
-		envName = "prod"
-	}
+	// Determine stage via CDK parameters and DomainConfig
+	cdkParams := config.NewCDKParams(scope)
+	stageToken := cdkParams.Stage.ValueAsString()
+	stage := domaincfg.StageType(*stageToken)
+	envName := string(stage)
 
 	attachObservability := func(
 		template awsec2.LaunchTemplate,
@@ -52,9 +50,10 @@ func AttachObservability(scope constructs.Construct, input *AttachObservabilityI
 			Prefix:          paramsPrefix,
 		})
 
+		// Attach SSM read policy using the serviceName (static) for policy ID
 		attachSSMReadAccess(
 			scope,
-			jsii.String(fmt.Sprintf("%s-observer-ssm-policy", instanceName)),
+			jsii.String(*params.ServiceName+"-ObserverSSMPolicy"),
 			template.Role(),
 			paramsPrefix,
 		)
@@ -106,7 +105,8 @@ func attachSSMReadAccess(
 	paramsPrefix string,
 ) {
 	paramString := path.Join("parameter", paramsPrefix, "*")
-	role.AttachInlinePolicy(awsiam.NewPolicy(
+	// Create inline policy under the stack scope using the provided static ID
+	policy := awsiam.NewPolicy(
 		scope,
 		id,
 		&awsiam.PolicyProps{
@@ -124,5 +124,6 @@ func attachSSMReadAccess(
 					}),
 			},
 		},
-	))
+	)
+	role.AttachInlinePolicy(policy)
 }
