@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/aws/aws-cdk-go/awscdk/v2"
-	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
 	"github.com/trufnetwork/node/infra/lib/utils"
 	"github.com/trufnetwork/node/infra/stacks"
@@ -17,33 +16,26 @@ func init() {
 func main() {
 	app := awscdk.NewApp(nil)
 
-	// CertStack needs the app scope to create the stack
-	certStackExports := stacks.CertStack(app)
+	// Create CertStack unconditionally. Stacks will use it based on their internal logic.
+	certExports := stacks.CertStack(app)
 
-	// TSN stacks will initialize their own parameters within their scope
-	stacks.TsnAutoStack(
+	// TN-Auto Stack
+	stacks.TnAutoStack(
 		app,
-		config.WithStackSuffix(app, "TSN-DB-Auto"),
-		&stacks.TsnAutoStackProps{
-			StackProps: awscdk.StackProps{
-				Env:                   utils.CdkEnv(),
-				CrossRegionReferences: jsii.Bool(true),
-				Description:           jsii.String("TSN-DB Auto is a stack that uses on-fly generated config files for the TSN nodes"),
-			},
-			CertStackExports: certStackExports,
+		config.WithStackSuffix(app, "TN-DB-Auto"),
+		&stacks.TnAutoStackProps{
+			StackProps:       awscdk.StackProps{Env: utils.CdkEnv()},
+			CertStackExports: &certExports,
 		},
 	)
 
-	stacks.TsnFromConfigStack(
+	// TN-From-Config Stack
+	stacks.TnFromConfigStack(
 		app,
-		config.WithStackSuffix(app, "TSN-From-Config"),
-		&stacks.TsnFromConfigStackProps{
-			StackProps: awscdk.StackProps{
-				Env:                   utils.CdkEnv(),
-				CrossRegionReferences: jsii.Bool(true),
-				Description:           jsii.String("TSN-From-Config is a stack that uses a pre-existing config file for the TSN nodes"),
-			},
-			CertStackExports: certStackExports,
+		config.WithStackSuffix(app, "TN-From-Config"),
+		&stacks.TnFromConfigStackProps{
+			StackProps:       awscdk.StackProps{Env: utils.CdkEnv()},
+			CertStackExports: &certExports,
 		},
 	)
 

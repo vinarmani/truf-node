@@ -6,6 +6,10 @@ services:
       - type: bind
         source: ../gateway/kgw-config.pkl
         target: /app/kgw-config.pkl
+      - type: bind
+        # if this fails, remember to run task kwil-binaries
+        source: ${KGW_BINARY_PATH:-../../.build/kgw}
+        target: /app/kgw
 
     build:
       context: ../..

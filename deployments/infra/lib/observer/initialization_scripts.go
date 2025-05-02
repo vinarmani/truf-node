@@ -27,12 +27,16 @@ func GetObserverScript(input ObserverScriptInput) *string {
 	observerDir := "/home/ec2-user/observer"
 	startScriptPath := "/usr/local/bin/start-observer.sh"
 	script := utils.UnzipFileScript(input.ZippedAssetsDir, observerDir)
-	script += CreateStartObserverScript(CreateStartObserverScriptInput{
+	startObserverScriptContent, err := CreateStartObserverScript(CreateStartObserverScriptInput{
 		Params:          input.Params,
 		Prefix:          input.Prefix,
 		ObserverDir:     observerDir,
 		StartScriptPath: startScriptPath,
 	})
+	if err != nil {
+		panic(err)
+	}
+	script += *jsii.String(startObserverScriptContent) + "\n"
 	script += utils.CreateSystemdServiceScript(
 		"observer",
 		"Observer Compose",

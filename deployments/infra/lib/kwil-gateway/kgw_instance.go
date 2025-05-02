@@ -10,7 +10,7 @@ import (
 	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
 	domain "github.com/trufnetwork/node/infra/config/domain"
-	"github.com/trufnetwork/node/infra/lib/tsn"
+	"github.com/trufnetwork/node/infra/lib/tn"
 	"github.com/trufnetwork/node/infra/lib/utils"
 )
 
@@ -19,7 +19,7 @@ type KGWConfig struct {
 	Domain           *string
 	SessionSecret    *string
 	ChainId          *string
-	Nodes            []tsn.TSNInstance
+	Nodes            []tn.TNInstance
 }
 
 type NewKGWInstanceInput struct {
@@ -33,11 +33,12 @@ type NewKGWInstanceInput struct {
 }
 
 type KGWInstance struct {
-	InstanceDnsName *string
-	SecurityGroup   awsec2.SecurityGroup
-	Role            awsiam.IRole
-	LaunchTemplate  awsec2.LaunchTemplate
-	ElasticIp       awsec2.CfnEIP
+	// Specific FQDN created for the gateway instance's A record (e.g., inner-gateway.dev.infra.truf.network)
+	GatewayFqdn    *string
+	SecurityGroup  awsec2.SecurityGroup
+	Role           awsiam.IRole
+	LaunchTemplate awsec2.LaunchTemplate
+	ElasticIp      awsec2.CfnEIP
 }
 
 func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWInstance {
@@ -46,19 +47,13 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 	})
 
 	// Create security group
-	instanceSG := awsec2.NewSecurityGroup(scope, jsii.String("NodeSG"), &awsec2.SecurityGroupProps{
+	instanceSG := awsec2.NewSecurityGroup(scope, jsii.String("KGWNodeSG"), &awsec2.SecurityGroupProps{
 		Vpc:              input.Vpc,
 		AllowAllOutbound: jsii.Bool(true),
-		Description:      jsii.String("TSN-DB Instance security group."),
+		Description:      jsii.String("KGW Instance security group."),
 	})
 
-	// TODO security could be hardened by allowing only specific IPs
-	//   relative to cloudfront distribution IPs
-	instanceSG.AddIngressRule(
-		awsec2.Peer_AnyIpv4(),
-		awsec2.Port_Tcp(jsii.Number(80)),
-		jsii.String("Allow requests to http."),
-		jsii.Bool(false))
+	// Ingress rules are applied by the KwilCluster construct based on selected fronting type.
 
 	// ssh
 	instanceSG.AddIngressRule(
@@ -67,7 +62,7 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 		jsii.String("Allow ssh."),
 		jsii.Bool(false))
 
-	keyPair := awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KeyPair"), jsii.String(config.KeyPairName(scope)))
+	keyPair := awsec2.KeyPair_FromKeyPairName(scope, jsii.String("KGWKeyPair"), jsii.String(config.KeyPairName(scope)))
 
 	kgwBinaryPath := jsii.String("/home/ec2-user/kgw-binary.zip")
 	kgwDirZipPath := jsii.String("/home/ec2-user/kgw.zip")
@@ -82,24 +77,32 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 			}),
 	}
 
-	elements = append(elements, input.InitElements...)
+	// Append base InitElements if provided
+	if input.InitElements != nil {
+		elements = append(elements, input.InitElements...)
+	}
 
 	initData := awsec2.CloudFormationInit_FromElements(elements...)
 
 	// comes with pre-installed cloud init requirements
 	AWSLinux2MachineImage := awsec2.MachineImage_LatestAmazonLinux2(nil)
 
+	// prepare default UserData to attach later commands
+	defaultUd := awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{Shebang: jsii.String("#!/bin/bash -xe")})
+	defaultUd.AddCommands(jsii.String("echo 'initializing-kgw'"))
+
 	// Create launch template
 	launchTemplate := awsec2.NewLaunchTemplate(scope, jsii.String("KGWLaunchTemplate"), &awsec2.LaunchTemplateProps{
 		InstanceType:       awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_SMALL),
 		MachineImage:       AWSLinux2MachineImage,
 		SecurityGroup:      instanceSG,
-		LaunchTemplateName: jsii.Sprintf("%s/%s", *awscdk.Aws_STACK_NAME(), "KGWLaunchTemplate"),
 		Role:               role,
 		KeyPair:            keyPair,
+		UserData:           defaultUd,
+		LaunchTemplateName: jsii.Sprintf("%s/%s", *awscdk.Aws_STACK_NAME(), "KGWLaunchTemplate"),
 	})
 
-	// first step is to attach the init data to the launch template
+	// Attach the init data to the launch template Role so cfn-init can run
 	utils.AttachInitDataToLaunchTemplate(utils.AttachInitDataToLaunchTemplateInput{
 		InitData:       initData,
 		LaunchTemplate: launchTemplate,
@@ -107,6 +110,7 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 		Platform:       awsec2.OperatingSystemType_LINUX,
 	})
 
+	// Add startup scripts to UserData AFTER base commands and cfn-init signal config
 	scripts := AddKwilGatewayStartupScriptsToInstance(AddKwilGatewayStartupScriptsOptions{
 		kgwBinaryPath: kgwBinaryPath,
 		Config:        input.Config,
@@ -127,18 +131,18 @@ func NewKGWInstance(scope constructs.Construct, input NewKGWInstanceInput) KGWIn
 	)
 
 	// Create an A record for the gateway using HostedDomain
-	subdomain := "kgw"
-	input.HostedDomain.AddARecord("KGWARecord", subdomain,
+	subdomain := "inner-gateway"
+	aRecord := input.HostedDomain.AddARecord("GatewayARecord", subdomain,
 		awsroute53.RecordTarget_FromIpAddresses(eip.AttrPublicIp()),
 	)
 	// Full DNS name includes subdomain prefix
-	instanceDnsName := jsii.String(input.HostedDomain.FQDN)
+	gatewayFqdn := aRecord.DomainName()
 
 	return KGWInstance{
-		SecurityGroup:   instanceSG,
-		Role:            role,
-		InstanceDnsName: instanceDnsName,
-		LaunchTemplate:  launchTemplate,
-		ElasticIp:       eip,
+		SecurityGroup:  instanceSG,
+		Role:           role,
+		GatewayFqdn:    gatewayFqdn,
+		LaunchTemplate: launchTemplate,
+		ElasticIp:      eip,
 	}
 }

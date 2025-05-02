@@ -15,33 +15,45 @@ type AddKwilGatewayStartupScriptsOptions struct {
 func AddKwilGatewayStartupScriptsToInstance(options AddKwilGatewayStartupScriptsOptions) *string {
 	config := options.Config
 
+	// Build HTTP backend URLs (host at port 80) for the gateway compose file
 	var nodeAddresses []*string
 	for _, node := range config.Nodes {
-		nodeAddresses = append(nodeAddresses, node.PeerConnection.GetRpcHost())
+		url := awscdk.Fn_Join(jsii.String(""), &[]*string{
+			jsii.String("http://"),
+			node.PeerConnection.GetRpcHost(),
+		})
+		nodeAddresses = append(nodeAddresses, url)
 	}
 
-	// Create the environment variables for the gateway compose file
 	kgwEnvConfig := KGWEnvConfig{
 		CorsAllowOrigins: config.CorsAllowOrigins,
 		SessionSecret:    config.SessionSecret,
-		Backends:         awscdk.Fn_Join(jsii.String(","), &nodeAddresses),
+		Backends:         awscdk.Fn_Join(jsii.String(","), &nodeAddresses), // nodeAddresses now contains http://host:port
 		ChainId:          config.ChainId,
 		Domain:           config.Domain,
 	}
 
 	script := "#!/bin/bash\nset -e\nset -x\n\n"
-	script += utils.InstallDockerScript() + "\n"
+	installScript, err := utils.InstallDockerScript()
+	if err != nil {
+		panic(err)
+	}
+	script += installScript + "\n"
+
 	// script += utils.ConfigureDocker(utils.ConfigureDockerInput{
 	// // when we want to enable docker metrics on the host
 	// 	MetricsAddr: jsii.String("127.0.0.1:9323"),
 	// }) + "\n"
+
 	script += utils.UnzipFileScript(*options.KGWDirZipPath, "/home/ec2-user/kgw") + "\n"
 	script += `
-unzip ` + *options.kgwBinaryPath + ` kgw_0.3.4_linux_amd64.tar.gz -d /tmp/kgw-pkg
+mkdir -p /tmp/kgw-pkg
+unzip ` + *options.kgwBinaryPath + ` v0.4.1/kgw_0.4.1_linux_amd64.tar.gz -d /tmp/kgw-pkg
 mkdir -p /tmp/kgw-binary
-tar -xf /tmp/kgw-pkg/kgw_0.3.4_linux_amd64.tar.gz  -C /tmp/kgw-binary
+tar -xf /tmp/kgw-pkg/v0.4.1/kgw_0.4.1_linux_amd64.tar.gz  -C /tmp/kgw-binary
 chmod +x /tmp/kgw-binary/kgw
 mv /tmp/kgw-binary/kgw /home/ec2-user/kgw/kgw
+rm -rf /tmp/kgw-pkg /tmp/kgw-binary
 ` + "\n"
 	script += utils.CreateSystemdServiceScript(
 		"kgw",

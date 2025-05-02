@@ -13,7 +13,7 @@ import (
 	"github.com/trufnetwork/node/infra/config"
 	domain "github.com/trufnetwork/node/infra/config/domain"
 	"github.com/trufnetwork/node/infra/lib/kwil-network/peer"
-	"github.com/trufnetwork/node/infra/lib/tsn"
+	"github.com/trufnetwork/node/infra/lib/tn"
 	"github.com/trufnetwork/node/infra/lib/utils"
 )
 
@@ -22,7 +22,7 @@ type KGWConfig struct {
 
 type NewIndexerInstanceInput struct {
 	Vpc             awsec2.IVpc
-	TSNInstance     tsn.TSNInstance
+	TNInstance      tn.TNInstance
 	IndexerDirAsset awss3assets.Asset
 	HostedDomain    *domain.HostedDomain
 	InitElements    []awsec2.InitElement
@@ -32,7 +32,7 @@ type IndexerInstance struct {
 	// security group of the instance to allow communication
 	SecurityGroup awsec2.SecurityGroup
 	// public DNS name is needed for cloudfront
-	InstanceDnsName *string
+	IndexerFqdn *string
 	// if we need to add policies to the role
 	Role awsiam.IRole
 	// launch template of the instance
@@ -61,12 +61,12 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 	)
 
 	// Create an A record for the indexer using HostedDomain
-	subdomain := "indexer"
-	input.HostedDomain.AddARecord("IndexerElasticIpDnsRecord", subdomain,
+	subdomain := "inner-indexer"
+	aRecord := input.HostedDomain.AddARecord("IndexerElasticIpDnsRecord", subdomain,
 		awsroute53.RecordTarget_FromIpAddresses(indexerElasticIp.AttrPublicIp()),
 	)
 	// Full DNS name includes subdomain
-	instanceDnsName := jsii.String(input.HostedDomain.FQDN)
+	indexerFqdn := aRecord.DomainName()
 
 	// Create security group
 	instanceSG := awsec2.NewSecurityGroup(scope, jsii.String("IndexerSG"), &awsec2.SecurityGroupProps{
@@ -75,17 +75,17 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 		Description:      jsii.String("Kwil Indexer Security Group."),
 	})
 
-	// These ports will be used by the indexer to communicate with the TSN node
-	indexerToTsnPorts := []struct {
+	// These ports will be used by the indexer to communicate with the TN node
+	indexerToTnPorts := []struct {
 		port int
 		name string
 	}{
-		{peer.TSNPostgresPort, "TSN Postgres port"},
+		{peer.TnPostgresPort, "TN Postgres port"},
 	}
 
-	// allow communication from indexer to TSN node
-	for _, p := range indexerToTsnPorts {
-		input.TSNInstance.SecurityGroup.AddIngressRule(
+	// allow communication from indexer to TN node
+	for _, p := range indexerToTnPorts {
+		input.TNInstance.SecurityGroup.AddIngressRule(
 			// we use the elastic ip of the indexer to allow communication via public ip
 			// we need to use the public ip because the node anounces itself with the public ip to the indexer
 			awsec2.Peer_Ipv4(jsii.String(fmt.Sprintf("%s/32", *indexerElasticIp.AttrPublicIp()))),
@@ -94,13 +94,7 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 			jsii.Bool(false))
 	}
 
-	// TODO security could be hardened by allowing only specific IPs
-	//   relative to cloudfront distribution IPs
-	instanceSG.AddIngressRule(
-		awsec2.Peer_AnyIpv4(),
-		awsec2.Port_Tcp(jsii.Number(80)),
-		jsii.String("Allow requests to kwil-indexer."),
-		jsii.Bool(false))
+	// Ingress rules are applied by the KwilCluster construct based on selected fronting type.
 
 	// ssh
 	instanceSG.AddIngressRule(
@@ -120,12 +114,19 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 		}),
 	}
 
-	elements = append(elements, input.InitElements...)
+	// Append base InitElements if provided
+	if input.InitElements != nil {
+		elements = append(elements, input.InitElements...)
+	}
 
 	initData := awsec2.CloudFormationInit_FromElements(elements...)
 
 	// comes with pre-installed cloud init requirements
 	AWSLinux2MachineImage := awsec2.MachineImage_LatestAmazonLinux2(nil)
+
+	// prepare default UserData to attach later commands
+	defaultUd := awsec2.UserData_ForLinux(&awsec2.LinuxUserDataOptions{Shebang: jsii.String("#!/bin/bash -xe")})
+	defaultUd.AddCommands(jsii.String("echo 'initializing-indexer'"))
 
 	// Create launch template
 	launchTemplate := awsec2.NewLaunchTemplate(scope, jsii.String("IndexerLaunchTemplate"), &awsec2.LaunchTemplateProps{
@@ -134,6 +135,7 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 		SecurityGroup:      instanceSG,
 		Role:               role,
 		KeyPair:            keyPair,
+		UserData:           defaultUd,
 		LaunchTemplateName: jsii.Sprintf("%s/IndexerLaunchTemplate", *awscdk.Aws_STACK_NAME()),
 		BlockDevices: &[]*awsec2.BlockDevice{
 			{
@@ -158,16 +160,16 @@ func NewIndexerInstance(scope constructs.Construct, input NewIndexerInstanceInpu
 
 	scripts := AddKwilIndexerStartupScripts(AddKwilIndexerStartupScriptsOptions{
 		indexerZippedDirPath: indexerZippedDirPath,
-		TSNInstance:          input.TSNInstance,
+		TNInstance:           input.TNInstance,
 	})
 
 	launchTemplate.UserData().AddCommands(scripts)
 
 	return IndexerInstance{
-		SecurityGroup:   instanceSG,
-		Role:            role,
-		InstanceDnsName: instanceDnsName,
-		ElasticIp:       indexerElasticIp,
-		LaunchTemplate:  launchTemplate,
+		SecurityGroup:  instanceSG,
+		Role:           role,
+		IndexerFqdn:    indexerFqdn,
+		ElasticIp:      indexerElasticIp,
+		LaunchTemplate: launchTemplate,
 	}
 }
