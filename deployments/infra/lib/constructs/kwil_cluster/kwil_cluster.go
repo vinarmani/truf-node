@@ -61,6 +61,8 @@ func NewKwilCluster(scope constructs.Construct, id string, props *KwilClusterPro
 			SessionSecret:    props.SessionSecret,
 			ChainId:          props.ChainId,
 			Nodes:            props.Validators,
+			// default to 1, because it is behind a TLS termination point
+			XffTrustProxyCount: jsii.String("1"),
 		},
 		InitElements: props.InitElements,
 	})
@@ -70,11 +72,12 @@ func NewKwilCluster(scope constructs.Construct, id string, props *KwilClusterPro
 
 	// create Indexer instance
 	idx := kwil_indexer.NewIndexerInstance(node, kwil_indexer.NewIndexerInstanceInput{
-		Vpc:             props.Vpc,
-		TNInstance:      props.Validators[0],
-		IndexerDirAsset: props.Assets.Indexer.DirAsset,
-		HostedDomain:    props.HostedDomain,
-		InitElements:    props.InitElements,
+		Vpc:                props.Vpc,
+		TNInstance:         props.Validators[0],
+		IndexerDirAsset:    props.Assets.Indexer.DirAsset,
+		IndexerBinaryAsset: props.Assets.Indexer.Binary,
+		HostedDomain:       props.HostedDomain,
+		InitElements:       props.InitElements,
 	})
 	kc.Indexer = idx
 	// Apply ingress rules to Indexer SG
