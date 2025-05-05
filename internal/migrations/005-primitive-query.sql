@@ -25,6 +25,15 @@ CREATE OR REPLACE ACTION get_record_primitive(
     $effective_to INT8 := COALESCE($to, $max_int8);
     $effective_frozen_at INT8 := COALESCE($frozen_at, $max_int8);
 
+    -- for historical consistency, if both from and to are omitted, return the latest record
+    if $from IS NULL AND $to IS NULL {
+        FOR $row IN get_last_record_primitive($data_provider, $stream_id, NULL, $effective_frozen_at) {
+            RETURN NEXT $row.event_time, $row.value;
+        }
+        RETURN;
+    }
+
+
     RETURN WITH
     -- Get base records within time range
     interval_records AS (
@@ -159,6 +168,9 @@ CREATE OR REPLACE ACTION get_index_primitive(
     if !is_allowed_to_read_all($data_provider, $stream_id, @caller, $from, $to) {
         ERROR('Not allowed to read stream');
     }
+
+    $max_int8 INT8 := 9223372036854775000;
+    $effective_frozen_at INT8 := COALESCE($frozen_at, $max_int8);
     
     -- If base_time is not provided, try to get it from metadata
     $effective_base_time INT8 := $base_time;
@@ -184,6 +196,15 @@ CREATE OR REPLACE ACTION get_index_primitive(
     -- Check if base value is zero to avoid division by zero
     if $base_value = 0::NUMERIC(36,18) {
         ERROR('base value is 0');
+    }
+
+    -- for historical consistency, if both from and to are omitted, return the latest record
+    if $from IS NULL AND $to IS NULL {
+        for $row in get_last_record_primitive($data_provider, $stream_id, NULL, $effective_frozen_at) {
+            $indexed_value NUMERIC(36,18) := ($row.value * 100::NUMERIC(36,18)) / $base_value;
+            RETURN NEXT $row.event_time, $indexed_value;
+        }
+        RETURN;
     }
 
     -- Calculate the index for each record using the modified get_record_primitive

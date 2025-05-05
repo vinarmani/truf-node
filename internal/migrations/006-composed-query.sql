@@ -67,6 +67,14 @@ RETURNS TABLE(
         ERROR('Not allowed to compose stream');
     }
 
+        -- for historical consistency, if both from and to are omitted, return the latest record
+    if $from IS NULL AND $to IS NULL {
+        FOR $row IN get_last_record_composed($data_provider, $stream_id, NULL, $effective_frozen_at) {
+            RETURN NEXT $row.event_time, $row.value;
+        }
+        RETURN;
+    }
+
     RETURN WITH RECURSIVE
     /*----------------------------------------------------------------------
      * HIERARCHY CTE: Recursively resolves the dependency tree defined by taxonomies.
@@ -417,6 +425,8 @@ RETURNS TABLE(
         -- Check the same validity condition as the positive delta
         WHERE GREATEST(pw.group_sequence_start, fvt.first_value_time) <= pw.group_sequence_end
           AND pw.raw_weight != 0::numeric(36,18)
+          -- don't emit closing delta for open interval
+          AND pw.group_sequence_end < ($max_int8 - 1)
     ),
 
     -- Step 7: Combine value and *effective* weight changes into a unified timeline.
