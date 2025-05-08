@@ -5,12 +5,15 @@ import (
 	"strings"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscertificatemanager"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
 	"github.com/trufnetwork/node/infra/config/domain"
+	"github.com/trufnetwork/node/infra/lib/cdklogger"
+	altmgr "github.com/trufnetwork/node/infra/lib/constructs/alternativedomainmanager"
 	fronting "github.com/trufnetwork/node/infra/lib/constructs/fronting"
 	"github.com/trufnetwork/node/infra/lib/constructs/kwil_cluster"
 	"github.com/trufnetwork/node/infra/lib/constructs/validator_set"
@@ -52,6 +55,9 @@ func TnFromConfigStack(
 	// Define Fronting Type parameter within stack scope
 	selectedKind := config.GetFrontingKind(stack) // Use context helper
 
+	// --- Instantiate Alternative Domain Manager ---
+	altDomainManager := altmgr.NewAlternativeDomainManager(stack, "AltDomainManager", &altmgr.AlternativeDomainManagerProps{})
+
 	// Setup observer init elements
 	initElements := []awsec2.InitElement{} // Base elements
 	var observerAsset awss3assets.Asset    // Keep asset var, initialize as nil
@@ -76,6 +82,7 @@ func TnFromConfigStack(
 		kwil_network.KwilAutoNetworkConfigAssetInput{
 			PrivateKeys:     privateKeys,
 			GenesisFilePath: cfg.GenesisPath,
+			BaseDomainFqdn:  hd.DomainName,
 		},
 	)
 
@@ -95,6 +102,33 @@ func TnFromConfigStack(
 		NodeKeys:     nodeKeys,
 	})
 
+	// --- Register Node Targets with Manager (After ValidatorSet creation) ---
+	for _, node := range vs.Nodes {
+		nodeTargetID := altmgr.NodeTargetID(node.Index) // Use helper for consistent ID.
+		primaryFqdn := node.PeerConnection.Address
+		// Ensure we have the necessary info before creating and registering the target.
+		if primaryFqdn == nil || *primaryFqdn == "" {
+			cdklogger.LogWarning(stack, "", "Node %d primary FQDN (PeerConnection.Address) is empty. Cannot register target %s.", node.Index+1, nodeTargetID)
+			continue
+		}
+
+		// NOTE: Accessing node.ElasticIp.Ref() here assumes that the ValidatorSet construct
+		// internally creates and associates an Elastic IP with each NodeInfo, even though
+		// the EC2 instance itself might be created elsewhere (unlike tn_auto_stack).
+		// This works if ValidatorSet consistently populates NodeInfo.ElasticIp.
+		// A more robust solution might involve ValidatorSet explicitly returning EIP Refs.
+		if node.ElasticIp == nil {
+			cdklogger.LogWarning(stack, "", "Node %d ElasticIp is nil in NodeInfo. Cannot register target %s.", node.Index+1, nodeTargetID)
+		} else {
+			// Create a NodeTarget DnsTarget implementation using the EIP's Ref attribute.
+			nodeTarget := &validator_set.NodeTarget{
+				IpAddress:   node.ElasticIp.Ref(), // Ref() resolves to the allocated IP address.
+				PrimaryAddr: primaryFqdn,
+			}
+			altDomainManager.RegisterTarget(nodeTargetID, nodeTarget)
+		}
+	}
+
 	// Kwil Cluster assets via helper
 	kwilAssets := kwil_cluster.BuildKwilAssets(stack, kwil_cluster.KwilAssetOptions{
 		RootDir:            utils.GetProjectRootDir(), // Assuming stack run from infra root
@@ -111,9 +145,9 @@ func TnFromConfigStack(
 		SessionSecret:        jsii.String(cfg.SessionSecret),
 		ChainId:              jsii.String(cfg.ChainId),
 		Validators:           vs.Nodes,
-		InitElements:         initElements, // Only pass base elements
+		InitElements:         initElements,
 		Assets:               kwilAssets,
-		SelectedFrontingKind: selectedKind, // Pass selected kind
+		SelectedFrontingKind: selectedKind,
 	})
 
 	// --- Fronting Setup ---
@@ -124,44 +158,78 @@ func TnFromConfigStack(
 		DevPrefix: devPrefix,
 	}
 
+	// Declare sharedCert here to be accessible for ProvisionAlternativeDomains if moved outside the 'if' block later.
+	var sharedCert awscertificatemanager.ICertificate
+
 	if selectedKind == fronting.KindAPI {
 		// Dual API Gateway setup specific logic
-		gatewayRecord := spec.Subdomain("gateway")
-		indexerRecord := spec.Subdomain("indexer")
+		gatewayPrimaryFqdn := spec.Subdomain("gateway")
+		indexerPrimaryFqdn := spec.Subdomain("indexer")
 
-		// Get props for shared certificate setup
-		gwProps, idxProps := fronting.GetSharedCertProps(hd.Zone, *gatewayRecord, *indexerRecord)
+		// Build SAN list and DNS validation method
+		certPrimaryDomain, certSans, certValidation, err := altDomainManager.GetCertificateRequirements(
+			hd.Zone, // Stack's primary hosted zone
+			gatewayPrimaryFqdn,
+			indexerPrimaryFqdn,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to get certificate requirements from ADM: %v", err))
+		}
 
-		// Set endpoints
+		// Create the single shared certificate based on ADM's requirements
+		sharedCert = awscertificatemanager.NewCertificate(stack, jsii.String("SharedDomainsCert"), &awscertificatemanager.CertificateProps{
+			DomainName:              certPrimaryDomain,
+			SubjectAlternativeNames: &certSans,
+			Validation:              certValidation,
+		})
+
+		// Prepare shared fronting props
+		gwProps, idxProps := fronting.GetSharedCertProps(hd.Zone, *gatewayPrimaryFqdn, *indexerPrimaryFqdn)
+		gwProps.ImportedCertificate = sharedCert
+		gwProps.PrimaryDomainName = gatewayPrimaryFqdn
 		gwProps.Endpoint = kc.Gateway.GatewayFqdn
+
+		idxProps.ImportedCertificate = sharedCert
+		idxProps.PrimaryDomainName = indexerPrimaryFqdn
 		idxProps.Endpoint = kc.Indexer.IndexerFqdn
 
-		// 1. Gateway Fronting (issues cert)
-		gApi := fronting.NewApiGatewayFronting() // Use concrete type here for API GW setup
-		gatewayRes := gApi.AttachRoutes(stack, "GatewayFronting", &gwProps)
+		// 1. Gateway Fronting
+		gApi := fronting.NewApiGatewayFronting()
+		gatewayFrontingResult := gApi.AttachRoutes(stack, "GatewayFronting", &gwProps)
 
-		// 2. Indexer Fronting (imports cert)
-		idxProps.ImportedCertificate = gatewayRes.Certificate // Set imported cert
-		iApi := fronting.NewApiGatewayFronting()              // Use concrete type here for API GW setup
-		indexerRes := iApi.AttachRoutes(stack, "IndexerFronting", &idxProps)
+		// 2. Indexer Fronting
+		iApi := fronting.NewApiGatewayFronting()
+		indexerFrontingResult := iApi.AttachRoutes(stack, "IndexerFronting", &idxProps)
+
+		// --- Register Gateway/Indexer FrontingResults with ADM ---
+		altDomainManager.RegisterTarget(altmgr.TargetGateway, &gatewayFrontingResult)
+		altDomainManager.RegisterTarget(altmgr.TargetIndexer, &indexerFrontingResult)
+
+		// --- Provision all alternative domains using ADM ---
+		err = altDomainManager.ProvisionAlternativeDomains(sharedCert)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to provision alternative domains: %v", err))
+		}
 
 		// --- Outputs ---
 		awscdk.NewCfnOutput(stack, jsii.String("GatewayEndpoint"), &awscdk.CfnOutputProps{
-			Value:       gatewayRes.FQDN,
+			Value:       gatewayFrontingResult.FQDN,
 			Description: jsii.String("Public FQDN for the Kwil Gateway API"),
 		})
 		awscdk.NewCfnOutput(stack, jsii.String("IndexerEndpoint"), &awscdk.CfnOutputProps{
-			Value:       indexerRes.FQDN,
+			Value:       indexerFrontingResult.FQDN,
 			Description: jsii.String("Public FQDN for the Kwil Indexer API"),
 		})
 		awscdk.NewCfnOutput(stack, jsii.String("ApiCertArn"), &awscdk.CfnOutputProps{
-			Value:       gatewayRes.Certificate.CertificateArn(),
+			Value:       sharedCert.CertificateArn(),
 			Description: jsii.String("ARN of the regional ACM certificate used for API Gateway TLS"),
 		})
 	} else {
 		// Handle other fronting types (ALB, CloudFront)
 		// Currently, the dual endpoint setup is only implemented for API Gateway
-		panic(fmt.Sprintf("Dual endpoint fronting setup not implemented for type: %s", selectedKind))
+		// As in tn_auto_stack, if alternative domains (especially for Nodes) are needed for other fronting types,
+		// this logic would need adjustment. For now, keeping ProvisionAlternativeDomains within this block.
+		panic(fmt.Sprintf("Dual endpoint fronting setup not implemented for type: %s. Alternative domain provisioning for this type also needs review.", selectedKind))
 	}
 
 	// Conditionally attach observability
