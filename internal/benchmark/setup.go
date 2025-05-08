@@ -6,22 +6,16 @@ import (
 	"fmt"
 	mathrand "math/rand"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cockroachdb/apd/v3"
-	"github.com/google/uuid"
-	"github.com/kwilteam/kwil-db/common"
-	kwiltypes "github.com/kwilteam/kwil-db/core/types"
-	"github.com/kwilteam/kwil-db/core/utils"
-	"github.com/kwilteam/kwil-db/parse"
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/node/internal/benchmark/trees"
-	"github.com/trufnetwork/node/internal/contracts"
+	"github.com/trufnetwork/node/tests/streams/utils/procedure"
+	"github.com/trufnetwork/node/tests/streams/utils/setup"
 	"github.com/trufnetwork/sdk-go/core/types"
 	"github.com/trufnetwork/sdk-go/core/util"
-	"golang.org/x/sync/errgroup"
 )
 
 type SetupSchemasInput struct {
@@ -37,115 +31,41 @@ func setupSchemas(
 ) error {
 	deployerAddress := MustNewEthereumAddressFromBytes(platform.Deployer)
 
-	type schemaAndNode struct {
-		Schema *kwiltypes.Schema
-		Node   trees.TreeNode
-	}
+	allStreamInfos := []setup.StreamInfo{}
 
-	// Create an unbuffered channel to process one schema at a time
-	schemaChan := make(chan schemaAndNode)
-
-	eg, grpCtx := errgroup.WithContext(ctx)
-
-	// Producer goroutine to generate schemas
-	// it can be trying to create scheams asap, but consumer will block if it's not finished
-	eg.Go(func() error {
-		defer close(schemaChan)
-		for _, node := range input.Tree.Nodes {
-			select {
-			case <-grpCtx.Done():
-				return grpCtx.Err()
-			default:
-				var schema *kwiltypes.Schema
-				var err error
-				if node.IsLeaf {
-					if input.BenchmarkCase.UnixOnly {
-						schema, err = parse.Parse(contracts.PrimitiveStreamUnixContent)
-					} else {
-						schema, err = parse.Parse(contracts.PrimitiveStreamContent)
-					}
-				} else {
-					if input.BenchmarkCase.UnixOnly {
-						schema, err = parse.Parse(contracts.ComposedStreamUnixContent)
-					} else {
-						schema, err = parse.Parse(contracts.ComposedStreamContent)
-					}
-				}
-				if err != nil {
-					return errors.Wrap(err, "failed to parse stream")
-				}
-
-				schema.Name = getStreamId(node.Index).String()
-				select {
-				case schemaChan <- schemaAndNode{Schema: schema, Node: node}:
-				case <-grpCtx.Done():
-					return grpCtx.Err()
-				}
-			}
+	for _, node := range input.Tree.Nodes {
+		streamId := getStreamId(node.Index)
+		streamInfo := setup.StreamInfo{
+			Locator: types.StreamLocator{
+				DataProvider: deployerAddress,
+				StreamId:     *streamId,
+			},
 		}
-		return nil
-	})
 
-	// Consumer goroutine to process schemas
-	// it can't be parallel because uses postgres pool under the hood
-	eg.Go(func() error {
-		for schema := range schemaChan {
-			if err := createAndInitializeSchema(grpCtx, platform, schema.Schema); err != nil {
-				return errors.Wrap(err, "failed to create and initialize schema")
-			}
-
-			if err := setupSchema(grpCtx, platform, schema.Schema, setupSchemaInput{
-				visibility:  input.BenchmarkCase.Visibility,
-				treeNode:    schema.Node,
-				rangeParams: getMaxRangeParams(input.BenchmarkCase.DataPointsSet, input.BenchmarkCase.UnixOnly),
-				owner:       deployerAddress,
-				unixOnly:    input.BenchmarkCase.UnixOnly,
-			}); err != nil {
-				return errors.Wrap(err, "failed to setup schema")
-			}
+		if node.IsLeaf {
+			streamInfo.Type = "primitive"
+		} else {
+			streamInfo.Type = "composed"
 		}
-		return nil
-	})
 
-	// Wait for all goroutines to complete
-	if err := eg.Wait(); err != nil {
-		return err
+		allStreamInfos = append(allStreamInfos, streamInfo)
 	}
 
-	return nil
-}
-
-func createAndInitializeSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kwiltypes.Schema) error {
-	txContext := &common.TxContext{
-		Ctx: ctx,
-		BlockContext: &common.BlockContext{
-			Height: 0,
-		},
-		TxID:   platform.Txid(),
-		Signer: platform.Deployer,
+	if err := setup.CreateStreams(ctx, platform, allStreamInfos); err != nil {
+		return errors.Wrap(err, "failed to create stream")
 	}
 
-	if err := platform.Engine.CreateDataset(txContext, platform.DB, schema); err != nil {
-		return errors.Wrap(err, "failed to create dataset")
+	for i, streamInfo := range allStreamInfos {
+		if err := setupSchema(ctx, platform, streamInfo, setupSchemaInput{
+			visibility:  input.BenchmarkCase.Visibility,
+			treeNode:    input.Tree.Nodes[i],
+			rangeParams: getMaxRangeParams(input.BenchmarkCase.DataPointsSet),
+			owner:       deployerAddress,
+		}); err != nil {
+			return errors.Wrap(err, "failed to setup schema")
+		}
 	}
 
-	txContext2 := &common.TxContext{
-		Ctx: ctx,
-		BlockContext: &common.BlockContext{
-			Height: 1,
-		},
-		TxID:   platform.Txid(),
-		Signer: platform.Deployer,
-		Caller: MustEthereumAddressFromBytes(platform.Deployer).Address(),
-	}
-	_, err := platform.Engine.Procedure(txContext2, platform.DB, &common.ExecutionData{
-		Procedure: "init",
-		Dataset:   utils.GenerateDBID(schema.Name, platform.Deployer),
-		Args:      []any{},
-	})
-	if err != nil {
-		return errors.Wrap(err, "failed to initialize schema")
-	}
 	return nil
 }
 
@@ -154,65 +74,67 @@ type setupSchemaInput struct {
 	owner       util.EthereumAddress
 	treeNode    trees.TreeNode
 	rangeParams RangeParameters
-	unixOnly    bool
 }
 
-func setupSchema(ctx context.Context, platform *kwilTesting.Platform, schema *kwiltypes.Schema, input setupSchemaInput) error {
-	dbid := utils.GenerateDBID(schema.Name, input.owner.Bytes())
+func setupSchema(ctx context.Context, platform *kwilTesting.Platform, stream setup.StreamInfo, input setupSchemaInput) error {
 
 	if input.visibility == util.PrivateVisibility {
-		if err := setVisibilityAndWhitelist(ctx, platform, dbid, input.treeNode); err != nil {
+		if err := setVisibilityAndWhitelist(ctx, platform, stream, input.treeNode); err != nil {
 			return errors.Wrap(err, "failed to set visibility and whitelist")
 		}
 	}
 
 	// if it's a leaf, then it's a primitive stream
 	if input.treeNode.IsLeaf {
-		if err := insertRecordsForPrimitive(ctx, platform, dbid, input.rangeParams, input.unixOnly); err != nil {
+		if err := insertRecordsForPrimitive(ctx, platform, stream, input.rangeParams); err != nil {
 			return errors.Wrap(err, "failed to insert records for primitive")
 		}
 	} else {
-		if err := setTaxonomyForComposed(ctx, platform, dbid, input); err != nil {
+		if err := setTaxonomyForComposed(ctx, platform, stream, input); err != nil {
 			return errors.Wrap(err, "failed to set taxonomy for composed")
 		}
 	}
 	return nil
 }
 
-func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platform, dbid string, treeNode trees.TreeNode) error {
+func setVisibilityAndWhitelist(ctx context.Context, platform *kwilTesting.Platform, stream setup.StreamInfo, treeNode trees.TreeNode) error {
 	parentStreamId := getStreamId(treeNode.Parent)
-	parentDbid := utils.GenerateDBID(parentStreamId.String(), platform.Deployer)
-	metadataToInsert := []struct {
-		key     string
-		val     string
-		valType string
-	}{
-		{string(types.ComposeVisibilityKey), strconv.Itoa(int(util.PrivateVisibility)), string(types.ComposeVisibilityKey.GetType())},
-		{string(types.AllowComposeStreamKey), parentDbid, string(types.AllowComposeStreamKey.GetType())},
-		{string(types.ReadVisibilityKey), strconv.Itoa(int(util.PrivateVisibility)), string(types.ReadVisibilityKey.GetType())},
-		{string(types.AllowReadWalletKey), readerAddress.Address(), string(types.AllowReadWalletKey.GetType())},
+	metadataToInsert := []procedure.InsertMetadataInput{
+		{Key: string(types.ComposeVisibilityKey), Value: strconv.Itoa(int(util.PrivateVisibility)), ValType: string(types.ComposeVisibilityKey.GetType())},
+		{Key: string(types.AllowComposeStreamKey), Value: parentStreamId.String(), ValType: string(types.AllowComposeStreamKey.GetType())},
+		{Key: string(types.ReadVisibilityKey), Value: strconv.Itoa(int(util.PrivateVisibility)), ValType: string(types.ReadVisibilityKey.GetType())},
+		{Key: string(types.AllowReadWalletKey), Value: readerAddress.Address(), ValType: string(types.AllowReadWalletKey.GetType())},
 	}
 
 	// generate more wallets and stream ids, to make a little more realistic result
 	// they shoudln't be influencing too much, if our indexing is correct
 	for _, wallet := range getMockReadWallets(1000) {
-		metadataToInsert = append(metadataToInsert, struct {
-			key     string
-			val     string
-			valType string
-		}{string(types.AllowReadWalletKey), wallet.Address(), string(types.AllowReadWalletKey.GetType())})
+		metadataToInsert = append(metadataToInsert, procedure.InsertMetadataInput{
+			Key:     string(types.AllowReadWalletKey),
+			Value:   wallet.Address(),
+			ValType: string(types.AllowReadWalletKey.GetType()),
+		})
 	}
 
 	for _, streamId := range getMockStreamIds(1000) {
-		metadataToInsert = append(metadataToInsert, struct {
-			key     string
-			val     string
-			valType string
-		}{string(types.AllowComposeStreamKey), streamId.String(), string(types.AllowComposeStreamKey.GetType())})
+		metadataToInsert = append(metadataToInsert, procedure.InsertMetadataInput{
+			Key:     string(types.AllowComposeStreamKey),
+			Value:   streamId.String(),
+			ValType: string(types.AllowComposeStreamKey.GetType()),
+		})
 	}
 
-	if err := batchInsertMetadata(ctx, platform, dbid, 1, metadataToInsert); err != nil {
-		return errors.Wrap(err, "failed to insert metadata")
+	// for all inputs, add the locator and height
+	for i := range metadataToInsert {
+		metadataToInsert[i].Locator = stream.Locator
+		metadataToInsert[i].Height = 1
+		metadataToInsert[i].Platform = platform
+	}
+
+	for _, input := range metadataToInsert {
+		if err := procedure.InsertMetadata(ctx, input); err != nil {
+			return errors.Wrap(err, "failed to insert metadata")
+		}
 	}
 	return nil
 }
@@ -250,87 +172,27 @@ func getMockStreamIds(n int) []util.StreamId {
 	return streamIds
 }
 
-func batchInsertMetadata(ctx context.Context, platform *kwilTesting.Platform, dbid string, height int, metadata []struct {
-	key     string
-	val     string
-	valType string
-}) error {
-	// Prepare the SQL statement for bulk insert
-	sqlStmt := "INSERT INTO metadata (row_id, metadata_key, value_i, value_f, value_b, value_s, value_ref, created_at) VALUES "
-	var values []string
-
-	for _, m := range metadata {
-		uuidVal := fmt.Sprintf("'%s'::uuid", uuid.New().String())
-		valueI, valueF, valueB, valueS, valueRef := "NULL", "NULL", "NULL", "NULL", "NULL"
-
-		switch m.valType {
-		case "int":
-			valueI = m.val
-		case "float":
-			valueF = m.val
-		case "bool":
-			valueB = m.val
-		case "string":
-			valueS = fmt.Sprintf("'%s'", m.val)
-		case "ref":
-			valueRef = fmt.Sprintf("LOWER('%s')", m.val)
-		}
-
-		values = append(values, fmt.Sprintf("(%s, '%s', %s, %s, %s, %s, %s, %d)",
-			uuidVal, m.key, valueI, valueF, valueB, valueS, valueRef, height))
-	}
-
-	sqlStmt += strings.Join(values, ", ")
-
-	txContext := &common.TxContext{
-		Ctx: ctx,
-		BlockContext: &common.BlockContext{
-			Height: 1,
-		},
-	}
-
-	// Execute the bulk insert
-	_, err := platform.Engine.Execute(txContext, platform.DB, dbid, sqlStmt, nil)
-	if err != nil {
-		return errors.Wrap(err, "failed to execute bulk insert for metadata")
-	}
-	return nil
-}
-
 // insertRecordsForPrimitive inserts records for a primitive stream.
 // - it generates records for the given number of days
 // - it generates a random value for each record
 // - it inserts the records into the stream
 // - we use a bulk insert to speed up the process
-func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platform, dbid string, rangeParams RangeParameters, unixOnly bool) error {
-	records := generateRecords(rangeParams, unixOnly)
+func insertRecordsForPrimitive(ctx context.Context, platform *kwilTesting.Platform, stream setup.StreamInfo, rangeParams RangeParameters) error {
+	records := generateRecords(rangeParams)
 
-	// Prepare the SQL statement for bulk insert
-	sqlStmt := "INSERT INTO primitive_events (date_value, value, created_at) VALUES "
-	var values []string
-
-	if unixOnly {
-		for _, record := range records {
-			values = append(values, fmt.Sprintf("(%d, %s::decimal(36,18), 0)", record[0], record[1]))
-		}
-	} else {
-		for _, record := range records {
-			values = append(values, fmt.Sprintf("('%s', %s::decimal(36,18), 0)", record[0], record[1]))
-		}
-	}
-
-	sqlStmt += strings.Join(values, ", ")
-
-	txContext := &common.TxContext{
-		Ctx: ctx,
-		BlockContext: &common.BlockContext{
-			Height: 1,
+	input := setup.InsertPrimitiveDataInput{
+		Platform: platform,
+		Height:   1,
+		PrimitiveStream: setup.PrimitiveStreamWithData{
+			PrimitiveStreamDefinition: setup.PrimitiveStreamDefinition{
+				StreamLocator: stream.Locator,
+			},
+			Data: records,
 		},
 	}
 
 	// Execute the bulk insert
-	_, err := platform.Engine.Execute(txContext, platform.DB, dbid, sqlStmt, nil)
-	if err != nil {
+	if err := setup.InsertPrimitiveDataBatch(ctx, input); err != nil {
 		return errors.Wrap(err, "failed to execute bulk insert")
 	}
 	return nil
@@ -344,40 +206,26 @@ type RangeParameters struct {
 
 // setTaxonomyForComposed sets the taxonomy for a composed stream.
 // - it creates a new taxonomy item for each child stream
-func setTaxonomyForComposed(ctx context.Context, platform *kwilTesting.Platform, dbid string, input setupSchemaInput) error {
+func setTaxonomyForComposed(ctx context.Context, platform *kwilTesting.Platform, stream setup.StreamInfo, input setupSchemaInput) error {
 	// Calculate parent and child stream IDs based on the new structure
-	var taxonomy []types.TaxonomyItem
+	var dataProviders []string
+	var streamIds []string
+	var weights []string
 	for _, childIndex := range input.treeNode.Children {
 		childStreamId := getStreamId(childIndex)
 		randWeight, _ := apd.New(mathrand.Int63n(10), 0).Float64() // can't be so big, otherwise it overflows when multiplying values
-		taxonomy = append(taxonomy, types.TaxonomyItem{
-			Weight: randWeight,
-			ChildStream: types.StreamLocator{
-				DataProvider: input.owner,
-				StreamId:     *childStreamId,
-			},
-		})
+		dataProviders = append(dataProviders, stream.Locator.DataProvider.Address())
+		streamIds = append(streamIds, childStreamId.String())
+		weights = append(weights, strconv.FormatFloat(randWeight, 'f', -1, 64))
 	}
 
-	var dataProvidersArg []string
-	var streamIdsArg []string
-	var weightsArg []int
-	var startDateArg string
-
-	for _, t := range taxonomy {
-		dataProvidersArg = append(dataProvidersArg, t.ChildStream.DataProvider.Address())
-		streamIdsArg = append(streamIdsArg, t.ChildStream.StreamId.String())
-		weightsArg = append(weightsArg, int(t.Weight))
-	}
-
-	if input.unixOnly {
-		startDateArg = strconv.Itoa(int(input.rangeParams.FromDate.Unix()))
-	} else {
-		startDateArg = input.rangeParams.FromDate.Format(time.DateOnly)
-	}
-
-	return executeStreamProcedure(ctx, platform, dbid, "set_taxonomy",
-		[]any{dataProvidersArg, streamIdsArg, weightsArg, startDateArg}, platform.Deployer)
+	return procedure.SetTaxonomy(ctx, procedure.SetTaxonomyInput{
+		Platform:      platform,
+		StreamLocator: stream.Locator,
+		DataProviders: dataProviders,
+		StreamIds:     streamIds,
+		Weights:       weights,
+	})
 }
 
 func randDate(minDate, maxDate time.Time) time.Time {

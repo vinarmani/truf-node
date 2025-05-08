@@ -3,126 +3,174 @@ package observer
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	"github.com/trufnetwork/node/infra/config"
-	kwil_gateway "github.com/trufnetwork/node/infra/lib/kwil-gateway"
-	kwil_indexer_instance "github.com/trufnetwork/node/infra/lib/kwil-indexer"
-	"github.com/trufnetwork/node/infra/lib/tsn/cluster"
+	"github.com/trufnetwork/node/infra/lib/cdklogger"
+	"github.com/trufnetwork/node/infra/lib/constructs/kwil_cluster"
+	"github.com/trufnetwork/node/infra/lib/constructs/validator_set"
 )
 
+// AttachObservabilityInput defines the inputs for attaching observer components.
 type AttachObservabilityInput struct {
-	TSNCluster      cluster.TSNCluster
-	KGWInstance     kwil_gateway.KGWInstance
-	IndexerInstance kwil_indexer_instance.IndexerInstance
+	Scope         constructs.Construct        // Changed from AttachObserverPermissionsInput
+	ValidatorSet  *validator_set.ValidatorSet // Changed from AttachObserverPermissionsInput
+	KwilCluster   *kwil_cluster.KwilCluster   // Changed from AttachObserverPermissionsInput
+	ObserverAsset awss3assets.Asset
+	// SsmPrefix is now derived internally based on scope/stage
+	Params config.CDKParams
 }
 
-func AttachObservability(scope constructs.Construct, input *AttachObservabilityInput) {
-	// we've been using the same prefix for all observer params to facilitate
-	// the ability to attach the same policy to all observer instances
-	// if we plan to have different params for envs (dev, test, prod), we'll need to
-	// change this
-	paramsPrefix := "/tsn/observer/"
+// ObservableStructure groups resources that need observer attached.
+type ObservableStructure struct {
+	InstanceName       string
+	UniquePolicyPrefix string
+	ServiceName        string
+	LaunchTemplate     awsec2.LaunchTemplate
+	Role               awsiam.IRole
+}
 
-	envName := config.GetDomainStage(scope)
-	// if it's empty, we assign prod domain
-	if envName == "" {
-		envName = "prod"
-	}
+// AttachObservability attaches observer components (Vector agent, scripts)
+// to the launch templates and grants necessary permissions.
+func AttachObservability(input AttachObservabilityInput) {
+	// Derive SSM prefix internally
+	stage := config.GetStage(input.Scope)
+	devPrefix := config.GetDevPrefix(input.Scope)
+	envName := string(stage)
+	ssmPrefix := fmt.Sprintf("/tsn/observer/%s/%s", stage, devPrefix)
 
-	attachObservability := func(
-		template awsec2.LaunchTemplate,
-		instanceName string,
-		serviceName string,
-	) {
-		// instantiate params with the ones are already available
+	// Helper function to attach to a single structure
+	attachToNode := func(structure ObservableStructure) {
+
+		// 1. Grant Permissions
+		attachSSMReadAccess(
+			input.Scope,
+			jsii.String(structure.UniquePolicyPrefix+"-ObserverSSMPolicy"),
+			structure.UniquePolicyPrefix,
+			structure.Role,
+			ssmPrefix,
+		)
+		input.ObserverAsset.GrantRead(structure.Role)
+
+		// 2. Prepare UserData Commands
+		observerDir := "/home/ec2-user/observer"                       // Target directory for observer assets
+		startScriptPath := path.Join(observerDir, "start_observer.sh") // Path for the generated script
+		downloadAndUnzipCmd := fmt.Sprintf(
+			"aws s3 cp s3://%s/%s %s && unzip -o %s -d %s && chown -R ec2-user:ec2-user %s",
+			*input.ObserverAsset.S3BucketName(),
+			*input.ObserverAsset.S3ObjectKey(),
+			ObserverZipAssetDir, // Source path on instance (where InitFile downloads)
+			ObserverZipAssetDir,
+			observerDir, // Unzip destination
+			observerDir, // Chown target
+		)
+
+		// Instantiate params
 		params := ObserverParameters{
-			InstanceName: jsii.String(instanceName),
-			ServiceName:  jsii.String(serviceName),
+			InstanceName: jsii.String(structure.InstanceName),
+			ServiceName:  jsii.String(structure.ServiceName),
 			Env:          jsii.String(envName),
+			// Let Prometheus/Logs creds be fetched from SSM by the script
 		}
 
-		initScript := GetObserverScript(ObserverScriptInput{
-			ZippedAssetsDir: ObserverZipAssetDir,
+		// Generate the script that fetches SSM params and starts compose
+		startObserverScriptContent, err := CreateStartObserverScript(CreateStartObserverScriptInput{
 			Params:          &params,
-			Prefix:          paramsPrefix,
+			Prefix:          ssmPrefix,
+			ObserverDir:     observerDir,
+			StartScriptPath: startScriptPath,
 		})
+		if err != nil {
+			// Use panic with more context as before
+			panic(fmt.Errorf("create observer start script: %w", err))
+		}
 
-		attachSSMReadAccess(
-			scope,
-			jsii.String(fmt.Sprintf("%s-observer-ssm-policy", instanceName)),
-			template.Role(),
-			paramsPrefix,
-		)
+		// Log before adding commands
+		// Use structure.InstanceName in the logger's constructID to make the path specific
+		// e.g., /<StackName>/my-dev-tn-node-0/UserData/[ObserverSetup] ...
+		userDataLogConstructID := structure.InstanceName + "/UserData"
+		cdklogger.LogInfo(input.Scope, userDataLogConstructID, "[ObserverSetup] Adding observer asset download, script generation, and service start commands for instance %s (service: %s).", structure.InstanceName, structure.ServiceName)
 
-		template.UserData().AddCommands(initScript)
+		// 3. Add commands to Launch Template UserData
+		lt := structure.LaunchTemplate
+		lt.UserData().AddCommands(jsii.String(downloadAndUnzipCmd))
+		lt.UserData().AddCommands(jsii.String(startObserverScriptContent))
+		lt.UserData().AddCommands(jsii.String(startScriptPath))
 	}
 
-	type ObservableStructure struct {
-		InstanceName   string
-		ServiceName    string
-		LaunchTemplate awsec2.LaunchTemplate
-		InitData       *awsec2.CloudFormationInit
-	}
+	// Gather all structures to attach to
+	observableStructures := []ObservableStructure{}
 
-	observableStructures := []ObservableStructure{
-		{
-			LaunchTemplate: input.KGWInstance.LaunchTemplate,
-			InstanceName:   fmt.Sprintf("%s-kgw", envName),
-			ServiceName:    "kwil-gateway",
-		},
-		{
-			LaunchTemplate: input.IndexerInstance.LaunchTemplate,
-			InstanceName:   fmt.Sprintf("%s-kwil-indexer", envName),
-			ServiceName:    "kwil-indexer",
-		},
-	}
-
-	for _, tsnInstance := range input.TSNCluster.Nodes {
+	if input.KwilCluster != nil {
 		observableStructures = append(observableStructures, ObservableStructure{
-			InstanceName:   fmt.Sprintf("%s-tsn-node-%d", envName, tsnInstance.Index),
-			LaunchTemplate: tsnInstance.LaunchTemplate,
-			ServiceName:    "tsn-node",
+			InstanceName:       fmt.Sprintf("%s-%s-gateway", stage, devPrefix),
+			UniquePolicyPrefix: "Gateway",
+			ServiceName:        "gateway",
+			LaunchTemplate:     input.KwilCluster.Gateway.LaunchTemplate,
+			Role:               input.KwilCluster.Gateway.Role,
+		})
+		observableStructures = append(observableStructures, ObservableStructure{
+			InstanceName:       fmt.Sprintf("%s-%s-indexer", stage, devPrefix),
+			UniquePolicyPrefix: "Indexer",
+			ServiceName:        "indexer",
+			LaunchTemplate:     input.KwilCluster.Indexer.LaunchTemplate,
+			Role:               input.KwilCluster.Indexer.Role,
 		})
 	}
 
-	for _, observableStructure := range observableStructures {
-		attachObservability(
-			observableStructure.LaunchTemplate,
-			observableStructure.InstanceName,
-			observableStructure.ServiceName,
-		)
+	if input.ValidatorSet != nil {
+		for _, tsnInstance := range input.ValidatorSet.Nodes {
+			observableStructures = append(observableStructures, ObservableStructure{
+				InstanceName:       fmt.Sprintf("%s-%s-tn-node-%d", stage, devPrefix, tsnInstance.Index),
+				UniquePolicyPrefix: fmt.Sprintf("TNNode@%d", tsnInstance.Index),
+				LaunchTemplate:     tsnInstance.LaunchTemplate,
+				ServiceName:        "tn-node",
+				Role:               tsnInstance.Role,
+			})
+		}
+	}
+
+	// Attach to each structure
+	for _, structure := range observableStructures {
+		attachToNode(structure)
 	}
 }
 
+// attachSSMReadAccess grants SSM read permissions for a given prefix.
 func attachSSMReadAccess(
 	scope constructs.Construct,
-	id *string,
+	id *string, // Unique ID for the policy construct within the scope
+	policyPrefix string,
 	role awsiam.IRole,
-	paramsPrefix string,
+	ssmPrefix string,
 ) {
-	paramString := path.Join("parameter", paramsPrefix, "*")
-	role.AttachInlinePolicy(awsiam.NewPolicy(
+	paramResourceName := path.Join("parameter", strings.TrimPrefix(ssmPrefix, "/"), "*") // Use path.Join and trim leading slash
+	// Create inline policy under the stack scope using the provided static ID
+	policy := awsiam.NewPolicy(
 		scope,
-		id,
+		id, // Use the unique ID passed in
 		&awsiam.PolicyProps{
+			PolicyName: jsii.Sprintf("%s-ssm-observer-read", policyPrefix), // Optional: Give policy a meaningful name
 			Statements: &[]awsiam.PolicyStatement{
 				awsiam.NewPolicyStatement(
 					&awsiam.PolicyStatementProps{
 						Effect:  awsiam.Effect_ALLOW,
-						Actions: &[]*string{jsii.String("ssm:GetParameter"), jsii.String("ssm:GetParameters")},
-						Resources: &[]*string{jsii.String(fmt.Sprintf(
+						Actions: jsii.Strings("ssm:GetParameter", "ssm:GetParameters"), // Use jsii.Strings
+						Resources: jsii.Strings(fmt.Sprintf( // Use jsii.Strings
 							"arn:aws:ssm:%s:%s:%s",
 							*awscdk.Aws_REGION(),
 							*awscdk.Aws_ACCOUNT_ID(),
-							paramString,
-						))},
+							paramResourceName,
+						)),
 					}),
 			},
 		},
-	))
+	)
+	role.AttachInlinePolicy(policy)
 }

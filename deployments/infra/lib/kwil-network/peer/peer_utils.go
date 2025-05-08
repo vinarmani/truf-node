@@ -1,26 +1,27 @@
 package peer
 
 import (
+	"strconv"
+
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/jsii-runtime-go"
-	"strconv"
 )
 
-// TsnP2pPort is the port used for P2P communication
-// this is hardcoded at the Dockerfile that generates TSN nodes
-const TsnP2pPort = 26656
-const TsnRPCPort = 8484
-const TsnIndexerPort = 1337
-const TsnCometBFTRPCPort = 26657
-const TSNPostgresPort = 5432
+// TnP2pPort is the port used for P2P communication
+// this is hardcoded at the Dockerfile that generates TN nodes
+const TnP2pPort = 26656
+const TnRPCPort = 8484
+const TnIndexerPort = 1337
+const TnCometBFTRPCPort = 26657
+const TnPostgresPort = 5432
 
-type TSNPeer struct {
-	Address                 *string
-	NodeCometEncodedAddress string
-	NodeHexAddress          string
+type TNPeer struct {
+	Address        *string
+	NodeId         string
+	NodeHexAddress string
 }
 
-func (p TSNPeer) GetExternalP2PAddress(withId bool) *string {
+func (p TNPeer) GetExternalP2PAddress(withId bool) *string {
 	// full p2p address = <comet_address>@<public_ip>:<p2p_port>
 	// partial p2p address = <public_ip>:<p2p_port>
 
@@ -28,13 +29,13 @@ func (p TSNPeer) GetExternalP2PAddress(withId bool) *string {
 	p2pHost := []*string{
 		p.Address,
 		jsii.String(":"),
-		jsii.String(strconv.Itoa(TsnP2pPort)),
+		jsii.String(strconv.Itoa(TnP2pPort)),
 	}
 
 	var result []*string
 	if withId {
 		cometAddressParts := []*string{
-			jsii.String(p.NodeCometEncodedAddress),
+			jsii.String(p.NodeId),
 			jsii.String("@"),
 		}
 
@@ -46,12 +47,12 @@ func (p TSNPeer) GetExternalP2PAddress(withId bool) *string {
 	return awscdk.Fn_Join(jsii.String(""), &result)
 }
 
-func (p TSNPeer) GetRpcHost() *string {
+func (p TNPeer) GetRpcHost() *string {
 	return awscdk.Fn_Join(
 		jsii.String(":"),
 		&[]*string{
 			p.Address,
-			jsii.String(strconv.Itoa(TsnRPCPort)),
+			jsii.String(strconv.Itoa(TnRPCPort)),
 		},
 	)
 }

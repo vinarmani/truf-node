@@ -16,6 +16,7 @@ import (
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/pkg/errors"
 	"github.com/trufnetwork/node/internal/benchmark/benchexport"
+	"github.com/trufnetwork/node/tests/streams/utils/setup"
 	"github.com/trufnetwork/sdk-go/core/util"
 	"golang.org/x/exp/constraints"
 )
@@ -28,25 +29,22 @@ func getStreamId(index int) *util.StreamId {
 
 // generateRecords creates a slice of records with random values for each day
 // between the given fromDate and toDate, inclusive.
-func generateRecords(rangeParams RangeParameters, unixOnly bool) [][]any {
-	var records [][]any
-	if unixOnly {
-		for d := rangeParams.FromDate; !d.After(rangeParams.ToDate); d = d.Add(secondInterval) {
-			value, _ := apd.New(rand.Int63n(100000000000000), 0).Float64()
-			records = append(records, []any{d.Unix(), fmt.Sprintf("%.2f", value)})
-		}
-	} else {
-		for d := rangeParams.FromDate; d.Before(rangeParams.ToDate) || d.Equal(rangeParams.ToDate); d = d.Add(dailyInterval) {
-			value, _ := apd.New(rand.Int63n(100000000000000), 0).Float64()
-			records = append(records, []any{d.Format("2006-01-02"), fmt.Sprintf("%.2f", value)})
-		}
+func generateRecords(rangeParams RangeParameters) []setup.InsertRecordInput {
+	var records []setup.InsertRecordInput
+	for d := rangeParams.FromDate; !d.After(rangeParams.ToDate); d = d.Add(secondInterval) {
+		value, _ := apd.New(rand.Int63n(100000000000000), 0).Float64()
+		records = append(records, setup.InsertRecordInput{
+			EventTime: d.Unix(),
+			Value:     value,
+		})
 	}
+
 	return records
 }
 
 // executeStreamProcedure executes a procedure on the given platform and database.
 // It handles the common setup for procedure execution, including transaction data.
-func executeStreamProcedure(ctx context.Context, platform *kwilTesting.Platform, dbid, procedure string, args []any, signer []byte) error {
+func executeStreamProcedure(ctx context.Context, platform *kwilTesting.Platform, procedure string, args []any, signer []byte) ([]common.Row, error) {
 	txContext := &common.TxContext{
 		Ctx:          ctx,
 		BlockContext: &common.BlockContext{Height: 0},
@@ -55,15 +53,23 @@ func executeStreamProcedure(ctx context.Context, platform *kwilTesting.Platform,
 		Caller:       MustEthereumAddressFromBytes(signer).Address(),
 	}
 
-	_, err := platform.Engine.Procedure(txContext, platform.DB, &common.ExecutionData{
-		Procedure: procedure,
-		Dataset:   dbid,
-		Args:      args,
+	engineContext := &common.EngineContext{
+		TxContext: txContext,
+	}
+
+	var rows []common.Row
+
+	call, err := platform.Engine.Call(engineContext, platform.DB, "", procedure, args, func(row *common.Row) error {
+		rows = append(rows, *row)
+		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "failed to execute stream procedure")
+		return nil, errors.Wrap(err, "failed to execute stream procedure")
 	}
-	return nil
+	if call.Error != nil {
+		return nil, errors.Wrap(call.Error, "failed to execute stream procedure")
+	}
+	return rows, nil
 }
 
 // printResults outputs the benchmark results in a human-readable format.
@@ -71,7 +77,7 @@ func printResults(results []Result) {
 	fmt.Println("Benchmark Results:")
 	for _, r := range results {
 		fmt.Printf(
-			"Qty Streams: %d, Branching Factor: %d, Data Points: %d, Visibility: %s, Procedure: %s, Samples: %d, Memory Usage: %s, Unix Only: %t\n",
+			"Qty Streams: %d, Branching Factor: %d, Data Points: %d, Visibility: %s, Procedure: %s, Samples: %d, Memory Usage: %s\n",
 			r.Case.QtyStreams,
 			r.Case.BranchingFactor,
 			r.DataPoints,
@@ -79,7 +85,6 @@ func printResults(results []Result) {
 			string(r.Procedure),
 			r.Case.Samples,
 			formatMemoryUsage(r.MemoryUsage),
-			r.Case.UnixOnly,
 		)
 		fmt.Printf("  Mean Duration: %v\n", Average(r.CaseDurations))
 		fmt.Printf("  Min Duration: %v\n", slices.Min(r.CaseDurations))
@@ -107,7 +112,6 @@ func saveResults(results []Result, filePath string) error {
 			DataPoints:      r.DataPoints,                            // n_of_dates
 			DurationMs:      Average(r.CaseDurations).Milliseconds(), // duration_ms
 			Visibility:      visibilityToString(r.Case.Visibility),   // visibility
-			UnixOnly:        r.Case.UnixOnly,                         // unix_only
 		}
 	}
 	// Save as CSV
@@ -209,15 +213,10 @@ func chunk[T any](arr []T, chunkSize int) [][]T {
 // getRangeParameters generates the range parameters for the given data points and unixOnly flag.
 // - it generates the fromDate and toDate based on the data points and unixOnly flag
 // - it returns the range parameters
-func getRangeParameters(dataPoints int, unixOnly bool) RangeParameters {
+func getRangeParameters(dataPoints int) RangeParameters {
 	toDate := fixedDate
-	var delta int
-	switch unixOnly {
-	case true:
-		delta = int(secondInterval)
-	case false:
-		delta = int(dailyInterval)
-	}
+	delta := int(secondInterval)
+
 	// Subtract (dataPoints - 1) because we want to include the interval at toDate
 	fromDate := toDate.Add(-time.Duration(delta * (dataPoints - 1)))
 	return RangeParameters{
@@ -229,7 +228,7 @@ func getRangeParameters(dataPoints int, unixOnly bool) RangeParameters {
 
 // getMaxRangeParams returns the maximum range parameters for the given data points and unixOnly flag.
 // - it returns the maximum data points and the range parameters
-func getMaxRangeParams(dataPoints []int, unixOnly bool) RangeParameters {
+func getMaxRangeParams(dataPoints []int) RangeParameters {
 	maxDataPoints := slices.Max(dataPoints)
-	return getRangeParameters(maxDataPoints, unixOnly)
+	return getRangeParameters(maxDataPoints)
 }

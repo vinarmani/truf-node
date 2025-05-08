@@ -6,26 +6,26 @@ import (
 	"github.com/aws/jsii-runtime-go"
 )
 
+// Constants for CDK parameter names
+const (
+	CorsParamName = "corsAllowOrigins"
+)
+
 type CDKParams struct {
 	CorsAllowOrigins awscdk.CfnParameter
-	SessionSecret    awscdk.CfnParameter
 }
 
 func NewCDKParams(scope constructs.Construct) CDKParams {
-	corsAllowOrigins := awscdk.NewCfnParameter(scope, jsii.String("corsAllowOrigins"), &awscdk.CfnParameterProps{
+	// Create CORS allow origins parameter
+	corsAllowOrigins := awscdk.NewCfnParameter(scope, jsii.String(CorsParamName), &awscdk.CfnParameterProps{
 		Type:        jsii.String("String"),
 		Description: jsii.String("CORS allow origins"),
 		Default:     jsii.String("*"),
 	})
 
-	sessionSecret := awscdk.NewCfnParameter(scope, jsii.String("sessionSecret"), &awscdk.CfnParameterProps{
-		Type:        jsii.String("String"),
-		Description: jsii.String("Kwil Gateway session secret"),
-		NoEcho:      jsii.Bool(true),
-	})
-
-	return CDKParams{
+	params := CDKParams{
 		CorsAllowOrigins: corsAllowOrigins,
-		SessionSecret:    sessionSecret,
 	}
+
+	return params
 }

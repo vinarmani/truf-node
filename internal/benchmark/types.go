@@ -12,7 +12,6 @@ type (
 		QtyStreams      int
 		BranchingFactor int
 		DataPointsSet   []int
-		UnixOnly        bool
 		Visibility      util.VisibilityEnum
 		Samples         int
 		Procedures      []ProcedureEnum
@@ -32,4 +31,5 @@ const (
 	ProcedureGetIndex       ProcedureEnum = "get_index"
 	ProcedureGetChangeIndex ProcedureEnum = "get_index_change"
 	ProcedureGetFirstRecord ProcedureEnum = "get_first_record"
+	ProcedureGetLastRecord  ProcedureEnum = "get_last_record"
 )

@@ -13,7 +13,7 @@ import (
 	"github.com/aws/jsii-runtime-go"
 
 	"github.com/trufnetwork/node/infra/config"
-	"github.com/trufnetwork/node/infra/lib/utils/asset"
+	goasset "github.com/trufnetwork/node/infra/lib/goasset"
 )
 
 // Main stack function
@@ -21,13 +21,13 @@ func BenchmarkStack(scope constructs.Construct, id string, props *awscdk.StackPr
 	stack := awscdk.NewStack(scope, jsii.String(id), props)
 
 	// Create S3 buckets for storing binaries and results
-	binaryS3Asset := asset.BuildGoBinaryIntoS3Asset(
-		stack,
-		jsii.String("benchmark-binary"),
-		asset.BuildGoBinaryIntoS3AssetInput{
-			IsTest:     true,
-			BinaryPath: jsii.String("../../internal/benchmark"),
-			BinaryName: jsii.String("benchmark"),
+	binaryS3Asset := goasset.BundleDir(stack, "benchmark-binary", "../../internal/benchmark",
+		func(o *goasset.Options) {
+			o.IsTest = true
+			o.OutName = "benchmark"
+			// Add any specific BuildFlags or Platform if needed, otherwise defaults are used
+			// o.Platform = "linux/amd64" // Default
+			// o.BuildFlags = []string{"-tags=foo"}
 		},
 	)
 	resultsBucket := createBucket(
@@ -39,9 +39,9 @@ func BenchmarkStack(scope constructs.Construct, id string, props *awscdk.StackPr
 	testedInstances := []awsec2.InstanceType{
 		// we don't support micro. it either gets error or hangs during the tests
 		//awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_MICRO),
-		awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_SMALL),
-		awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_MEDIUM),
-		awsec2.InstanceType_Of(awsec2.InstanceClass_T3, awsec2.InstanceSize_LARGE),
+		awsec2.InstanceType_Of(awsec2.InstanceClass_T3A, awsec2.InstanceSize_SMALL),
+		awsec2.InstanceType_Of(awsec2.InstanceClass_T3A, awsec2.InstanceSize_MEDIUM),
+		awsec2.InstanceType_Of(awsec2.InstanceClass_T3A, awsec2.InstanceSize_LARGE),
 	}
 
 	// default vpc

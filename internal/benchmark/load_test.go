@@ -12,6 +12,7 @@ import (
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/pkg/errors"
+	"github.com/trufnetwork/node/internal/migrations"
 	"github.com/trufnetwork/sdk-go/core/util"
 )
 
@@ -69,17 +70,31 @@ func TestBench(t *testing.T) {
 	type SpecificParams struct {
 		ShapePairs [][]int
 		DataPoints []int
-		UnixOnly   bool
 	}
 
-	// Date Parameters
+	getRecordsInAMonthWithInterval := func(interval time.Duration) int {
+		return int(time.Hour * 24 * 30 / interval)
+	}
+	// prevent lint error
+	_ = getRecordsInAMonthWithInterval
 
-	// number of days to query
-	dateDataPoints := []int{
-		1,
-		7,
-		30,
+	// number of data points to query
+	dataPoints := []int{
+		// 1,
+		// 7,
+		// 30,
 		365,
+		// sanity check
+		// 1,
+		// data points on one month:
+		// 1 record per 5 seconds
+		// getRecordsInAMonthWithInterval(time.Second * 5),
+		// 1 record per 1 minute
+		// getRecordsInAMonthWithInterval(time.Minute),
+		// 1 record per 5 minutes
+		// getRecordsInAMonthWithInterval(time.Minute * 5),
+		// 1 record per 1 hour
+		// getRecordsInAMonthWithInterval(time.Hour),
 	}
 
 	// shapePairs is a list of tuples, where each tuple represents a pair of qtyStreams and branchingFactor
@@ -93,86 +108,41 @@ func TestBench(t *testing.T) {
 		{1, 1},
 
 		//flat trees = cost of adding a new stream to our composed
-		{50, math.MaxInt},
-		{100, math.MaxInt},
-		{200, math.MaxInt},
-		{400, math.MaxInt},
-		// 800 streams kills t3.small instances for memory starvation. But probably because it stores the whole tree in memory
-		//{800, math.MaxInt},
-		//{1500, math.MaxInt}, // this gives error: Out of shared memory
-
-		// deep trees = cost of adding depth
-		{50, 1},
-		{100, 1},
-		//{200, 1}, // we can't go deeper than 180, for call stack size issues
-
-		// to get difference for stream qty on a real world situation
-		{50, 8},
-		{100, 8},
-		{200, 8},
-		{400, 8},
-		//{800, 8},
-
-		// to get difference for branching factor
-		{200, 2},
-		{200, 4},
-		// {200, 8}, // already tested above
-		{200, 16},
-		{200, 32},
-	}
-
-	dateSpecificParams := SpecificParams{
-		ShapePairs: dateShapePairs,
-		DataPoints: dateDataPoints,
-		UnixOnly:   false,
-	}
-
-	// Unix Only Parameters
-
-	unixOnlyShapePairs := [][]int{
-		// single stream
-		{1, 1},
-		// the effect of adding 1 composed stream
-		{2, 1},
-		// flat trees
-		{10, math.MaxInt},
-		{20, math.MaxInt},
-		{30, math.MaxInt},
-		// {100, math.MaxInt}, // to much to test
+		// {50, math.MaxInt},
+		// {100, math.MaxInt},
 		// {200, math.MaxInt},
-		// {400, math.MaxInt},
-	}
+		{400, math.MaxInt},
+		// // 800 streams kills t3.small instances for memory starvation. But probably because it stores the whole tree in memory
+		// //{800, math.MaxInt},
+		// //{1500, math.MaxInt}, // this gives error: Out of shared memory
 
-	getRecordsInAMonthWithInterval := func(interval time.Duration) int {
-		return int(time.Hour * 24 * 30 / interval)
-	}
+		// // deep trees = cost of adding depth
+		{50, 1},
+		// {100, 1},
+		// //{200, 1}, // we can't go deeper than 180, for call stack size issues
 
-	unixOnlyDataPoints := []int{
-		// sanity check
-		// 1,
-		// data points on one month:
-		// 1 record per 5 seconds
-		// getRecordsInAMonthWithInterval(time.Second * 5),
-		// 1 record per 1 minute
-		// getRecordsInAMonthWithInterval(time.Minute),
-		// 1 record per 5 minutes
-		getRecordsInAMonthWithInterval(time.Minute * 5),
-		// 1 record per 1 hour
-		getRecordsInAMonthWithInterval(time.Hour),
-	}
+		// // to get difference for stream qty on a real world situation
+		// {50, 8},
+		// {100, 8},
+		// {200, 8},
+		{400, 8},
+		// //{800, 8},
 
-	unixOnlySpecificParams := SpecificParams{
-		ShapePairs: unixOnlyShapePairs,
-		DataPoints: unixOnlyDataPoints,
-		UnixOnly:   true,
+		// // to get difference for branching factor
+		// {200, 2},
+		// {200, 4},
+		// // {200, 8}, // already tested above
+		// {200, 16},
+		// {200, 32},
 	}
 
 	// -----
 
-	_ = dateSpecificParams
 	allParams := []SpecificParams{
-		// dateSpecificParams,
-		unixOnlySpecificParams,
+		{
+			ShapePairs: dateShapePairs,
+			DataPoints: dataPoints,
+		},
 	}
 
 	var functionTests []kwilTesting.TestFunc
@@ -189,12 +159,12 @@ func TestBench(t *testing.T) {
 					BranchingFactor: shapePair[1],
 					Samples:         samples,
 					DataPointsSet:   specificParams.DataPoints,
-					UnixOnly:        specificParams.UnixOnly,
 					Procedures: []ProcedureEnum{
-						// ProcedureGetRecord,
+						ProcedureGetRecord,
 						ProcedureGetIndex,
-						// ProcedureGetChangeIndex,
-						// ProcedureGetFirstRecord,
+						ProcedureGetChangeIndex,
+						ProcedureGetFirstRecord,
+						ProcedureGetLastRecord,
 					},
 				},
 					// use pointer, so we can reassign the results channel
@@ -212,12 +182,12 @@ func TestBench(t *testing.T) {
 	for i, groupOfTests := range groupsOfTests {
 		schemaTest := kwilTesting.SchemaTest{
 			Name:          "benchmark_test_" + strconv.Itoa(i),
-			SchemaFiles:   []string{},
 			FunctionTests: groupOfTests,
+			SeedScripts:   migrations.GetSeedScriptPaths(),
 		}
 
 		t.Run(schemaTest.Name, func(t *testing.T) {
-			const maxRetries = 3
+			const maxRetries = 1
 			var err error
 		RetryFor:
 			for attempt := 1; attempt <= maxRetries; attempt++ {

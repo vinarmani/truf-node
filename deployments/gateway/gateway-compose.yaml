@@ -3,8 +3,8 @@ services:
     container_name: kwil-gateway
     hostname: kwil-gateway
     build:
-      context: ../..
-      dockerfile: deployments/gateway/gateway.dockerfile
+      context: .
+      dockerfile: gateway.dockerfile
     ports:
       - "80:8090"
     environment:
@@ -16,8 +16,13 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?}
       DOMAIN: https://${DOMAIN:?}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
-      ALLOW_DEPLOY_DB: true
+      XFF_TRUST_PROXY_COUNT: ${XFF_TRUST_PROXY_COUNT:-}
+      EXTRA_ARGS: "--allow-chain-rpcs"
     volumes:
+      - type: bind
+        # bind the file to the container
+        source: ${KGW_BINARY_PATH:-./kgw}
+        target: /app/kgw
       - type: bind
         source: ./kgw-config.pkl
         target: /app/kgw-config.pkl

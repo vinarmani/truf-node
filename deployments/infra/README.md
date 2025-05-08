@@ -1,6 +1,6 @@
-# TSN-DB Infrastructure
+# TN-DB Infrastructure
 
-This project contains the AWS CDK infrastructure code for deploying TSN-DB nodes, a Kwil Gateway, and an Indexer.
+This project contains the AWS CDK infrastructure code for deploying TN-DB nodes, a Kwil Gateway, and an Indexer.
 
 ## Overview
 
@@ -10,44 +10,120 @@ The infrastructure can be deployed in two ways:
 
 The `cdk.json` file tells the CDK toolkit how to execute your app.
 
+## High-level Constructs
+We have extracted three reusable L3 constructs under [deployments/infra/lib/constructs](https://github.com/trufnetwork/node/tree/main/deployments/infra/lib/constructs) to simplify stack logic:
+
+- **ValidatorSet**: provisions a group of TN validator EC2 instances with Elastic IPs, DNS A records, a shared IAM role, and security group.
+  - Props: `Vpc`, `HostedDomain`, `NodesConfig`, `KeyPair`, `ImageAssets`, `InitElements` (e.g. custom EC2 user-data such as observer bootstrap)
+  - Outputs: `Nodes []tn.TNInstance`, `Role awsiam.IRole`, `SecurityGroup awsec2.SecurityGroup`
+  - Import:
+    ```go
+    import "github.com/trufnetwork/node/infra/lib/constructs/validator_set"
+    ```
+  - Usage:
+    ```go
+    vs := validator_set.NewValidatorSet(stack, "ValidatorSet", &validator_set.ValidatorSetProps{ ... })
+    ```
+
+- **KwilCluster**: provisions a Kwil Gateway and an Indexer.
+  - Props: `Vpc`, `HostedDomain`, `Cert` (currently passed but not used for fronting), `CorsOrigins`, `SessionSecret`, `ChainId`, `Validators`, `InitElements`, `KGWDirAsset`, `KGWBinaryAsset`, `IndexerDirAsset`
+  - Outputs: `Gateway kwil_gateway.KGWInstance`, `Indexer kwil_indexer.IndexerInstance`
+  - Import:
+    ```go
+    import "github.com/trufnetwork/node/infra/lib/constructs/kwil_cluster"
+    ```
+  - Usage:
+    ```go
+    kc := kwil_cluster.NewKwilCluster(stack, "KwilCluster", &kwil_cluster.KwilClusterProps{ ... })
+    ```
+
+- **ObservabilitySuite**: deploys a Vector EC2 instance for logs/metrics ingestion and writes SSM parameters for observer configuration.
+  - Props: `Vpc`, `ValidatorSg`, `GatewaySg`, `ParamsPrefix`
+  - Outputs: `VectorInstance awsec2.Instance`, `ParamPaths []*string`
+  - Import:
+    ```go
+    import "github.com/trufnetwork/node/infra/lib/constructs/observability_suite"
+    ```
+  - Usage:
+    ```go
+    obs := observability_suite.NewObservabilitySuite(stack, "ObservabilitySuite", &observability_suite.ObservabilitySuiteProps{ ... })
+    ```
+
+- **Fronting**: pluggable edge proxy for API routing & TLS termination.
+  - Props: `HostedZone`, `Certificate`, `KGWEndpoint`, `IndexerEndpoint`, `RecordName`
+  - Import:
+    ```go
+    import fronting "github.com/trufnetwork/node/infra/lib/constructs/fronting"
+    ```
+  - Usage:
+    ```go
+    ag := fronting.NewApiGatewayFronting()
+    apiDomain := ag.AttachRoutes(stack, "APIGateway", &fronting.FrontingProps{
+      HostedZone:      zone,
+      Certificate:     cert,
+      KGWEndpoint:     kc.Gateway.InstanceDnsName,
+      IndexerEndpoint: kc.Indexer.InstanceDnsName,
+      RecordName:      jsii.String("api."+*prefix),
+    })
+    ```
+
 ## Deployment Methods
+
+### Choosing the front-end
+
+| Context key    | Values             | Default |
+|----------------|--------------------|---------|
+| `frontingType` | `api`, `cloudfront`| `api`   |
+
+* `api` – deploys an **AWS HTTP API** with a **regional ACM certificate** generated automatically in the same region as the stack (e.g. us-east-2).
+* `cloudfront` – retains the legacy CloudFront distribution with an edge certificate in us-east-1.
+
+```bash
+cdk deploy --context frontingType=api            # simplest, scale-to-zero, no hourly ALB
+cdk deploy --context frontingType=cloudfront    # only if you really need CF
+```
 
 ### 1. Auto-generated Configuration
 
-This method dynamically generates the TSN node configuration during deployment. It deploys both the launch templates and the instances from these templates.
+This method dynamically generates the TN node configuration during deployment. It deploys both the launch templates and the EC2 instances from these templates.
 
 #### Example Command:
 
 ```bash
 PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001 \
-KWIL_ADMIN_BIN_PATH=kwil-admin \
+KWILD_CLI_PATH=kwild \
 CHAIN_ID=truflation-dev \
-CDK_DOCKER="<YOUR-DIRECTORY>/tsn/deployments/infra/buildx.sh" \
+CDK_DOCKER="<YOUR-DIRECTORY>/tn/deployments/infra/buildx.sh" \
 cdk deploy --profile <YOUR-AWS-PROFILE> --all --asset-parallelism=false --notices false \
---context deploymentStage=DEV \
---parameters TSN-DB-Stack-dev:sessionSecret=abab
+  -c stage=dev \
+  -c devPrefix=<YOUR-DEV-PREFIX> \
+  --parameters TN-DB-Stack-dev:sessionSecret=abab
 ```
 
 ### 2. Pre-configured Setup
 
-This method uses a pre-existing genesis file and a list of private keys for the TSN nodes. It deploys only the launch templates, not the instances.
+This method uses a pre-existing genesis file and a list of private keys for the TN nodes. It deploys only the launch templates, not the instances.
 
 #### Example Command:
 
 ```bash
 PRIVATE_KEY=0000000000000000000000000000000000000000000000000000000000000001 \
-KWIL_ADMIN_BIN_PATH=kwil-admin \
+KWILD_CLI_PATH=kwild \
 CHAIN_ID=truflation-dev \
-CDK_DOCKER="<YOUR-DIRECTORY>/tsn/deployments/infra/buildx.sh" \
+CDK_DOCKER="<YOUR-DIRECTORY>/tn/deployments/infra/buildx.sh" \
 NODE_PRIVATE_KEYS="key1,key2,key3" \
 GENESIS_PATH="/path/to/genesis.json" \
-cdk deploy --profile <YOUR-AWS-PROFILE> TSN-From-Config* TSN-Cert* \
---parameters TSN-From-Config-<environment>-Stack:sessionSecret=abab
+cdk deploy --profile <YOUR-AWS-PROFILE> TN-From-Config* TN-Cert* \
+  -c stage=dev \
+  -c devPrefix=<YOUR-DEV-PREFIX> \
+  --parameters TN-From-Config-<environment>-Stack:sessionSecret=abab
 ```
 
 ## Redeploying Instances from Launch Templates
 
-In our stack, the launch templates for the Kwil Gateway (kgw) and Indexer instances are created, and the instances themselves are **not** automatically provisioned. This approach provides greater flexibility and control over instance deployment and updates. Below are the steps to redeploy an instance using the launch templates:
+In our stack, the launch templates for the Kwil Gateway (kgw) and Indexer instances are created. For the **TnAutoStack**, the instances themselves are also automatically provisioned. For the **TnFromConfigStack**, the instances are **not** automatically provisioned. This section primarily applies to the `TnFromConfigStack` or manual redeployment scenarios.
+
+Below are the steps to redeploy an instance using the launch templates:
 
 1. **Deploy a New Instance from the Launch Template**
    
@@ -65,15 +141,15 @@ In our stack, the launch templates for the Kwil Gateway (kgw) and Indexer instan
    
    Once the EIP is successfully attached to the new instance and you've verified its operation, terminate the old instance to avoid unnecessary costs.
 
-## Upgrading Nodes (Staging Environment)
+## Upgrading Nodes
 
-For the staging environment, which uses the pre-configured setup, upgrading a node involves the following steps:
+For the prod environment, which uses the pre-configured setup, upgrading a node involves the following steps:
 
 1. Deploy the stack to update the launch template with the new image:
 
     ```bash
-    cdk deploy --profile <YOUR-AWS-PROFILE> TSN-From-Config* TSN-Cert* \
-    --parameters TSN-From-Config-<environment>-Stack:sessionSecret=<SESSION-SECRET>
+    cdk deploy --profile <YOUR-AWS-PROFILE> TN-From-Config* TN-Cert* \
+    --parameters TN-From-Config-<environment>-Stack:sessionSecret=<SESSION-SECRET>
     ```
 
 2. After deployment, SSH into the instance you want to upgrade.
@@ -84,24 +160,23 @@ For the staging environment, which uses the pre-configured setup, upgrading a no
     docker pull <latest-image>
     ```
 
-4. Tag the image as `tsn:local`
+4. Tag the image as `tn:local`
 
     ```bash
-    docker tag <latest-image> tsn:local
+    docker tag <latest-image> tn:local
     ```
 
-5. Restart the systemd service that runs the TSN node:
+5. Restart the systemd service that runs the TN node:
 
     ```bash
-    sudo systemctl restart tsn-db-app.service
+    sudo systemctl restart tn-db-app.service
     ```
-
 This process ensures that your node is running the latest version of the software while maintaining the pre-configured setup.
 
 ## Environment Variables
 
 - `PRIVATE_KEY`: Ethereum private key for the admin account
-- `KWIL_ADMIN_BIN_PATH`: Path to kwil-admin binary (use `kwil-admin` if it's in your PATH)
+- `KWILD_CLI_PATH`: Path to the `kwild` CLI binary (use `kwild` if it's in your PATH)
 - `CHAIN_ID`: Chain ID for the Kwil network
 - `CDK_DOCKER`: Path to docker buildx script
 - `NODE_PRIVATE_KEYS`: Comma-separated list of private keys for TSN nodes (only for pre-configured setup)
@@ -113,12 +188,8 @@ Use the `--profile` option to specify your AWS profile.
 
 ## Deployment Stage
 
-Set the deployment stage using the `--context deploymentStage=<STAGE>` option, or by editing the `cdk.json` file. Valid stages are:
-- `DEV`
-- `STAGING`
-- `PROD`
-
-You may also edit the number of nodes for auto-generated configuration in the `cdk.json` file.
+- Stacks now read `stage` and `devPrefix` from CDK context (not CloudFormation parameters).
+- Example: `cdk deploy -c stage=dev -c devPrefix=<prefix>`.
 
 ## Useful Commands
 
@@ -157,7 +228,7 @@ To deploy the Benchmark Stack:
 cdk deploy --profile <YOUR-AWS-PROFILE> TSN-Benchmark-Stack-<environment> --exclusively
 ```
 
-Replace `<environment>` with your target environment (e.g., dev, staging, prod).
+Replace `<environment>` with your target environment (e.g., dev, prod).
 
 ### Usage
 

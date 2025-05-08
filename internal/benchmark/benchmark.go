@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	benchutil "github.com/trufnetwork/node/internal/benchmark/util"
 
-	"github.com/kwilteam/kwil-db/core/utils"
 	"github.com/pkg/errors"
+	"github.com/trufnetwork/sdk-go/core/types"
 
 	kwilTesting "github.com/kwilteam/kwil-db/testing"
 	"github.com/trufnetwork/node/internal/benchmark/trees"
+	"github.com/trufnetwork/node/tests/streams/utils/procedure"
 	"github.com/trufnetwork/sdk-go/core/util"
 )
 
@@ -26,6 +28,13 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to setup schemas")
+	}
+
+	// Triggering the analyze command for the given tables makes the query planner
+	// more accurate and the query execution time more consistent. It makes sure to match a production environment.
+	err = updateQueryPlanner(ctx, platform, []string{"taxonomies", "streams", "primitive_events", "metadata"})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to update query planner")
 	}
 
 	for _, dataPoints := range c.DataPointsSet {
@@ -47,6 +56,18 @@ func runBenchmark(ctx context.Context, platform *kwilTesting.Platform, c Benchma
 	return results, nil
 }
 
+func updateQueryPlanner(ctx context.Context, platform *kwilTesting.Platform, tables []string) error {
+	full_qualified_tables := make([]string, len(tables))
+	for i, table := range tables {
+		// on main schema by default
+		full_qualified_tables[i] = fmt.Sprintf("main.%s", table)
+	}
+	// we just run the analyze command for the given tables
+	query := fmt.Sprintf("ANALYZE %s;", strings.Join(full_qualified_tables, ", "))
+	_, err := platform.DB.Execute(ctx, query)
+	return err
+}
+
 type RunSingleTestInput struct {
 	Platform   *kwilTesting.Platform
 	Case       BenchmarkCase
@@ -58,15 +79,14 @@ type RunSingleTestInput struct {
 // runSingleTest runs a single test for the given input and returns the result.
 func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error) {
 	// we're querying the index-0 stream because this is the root stream
-	nthDbId := utils.GenerateDBID(getStreamId(0).String(), input.Platform.Deployer)
-	rangeParams := getRangeParameters(input.DataPoints, input.Case.UnixOnly)
-	fromDate := rangeParams.FromDate.Format("2006-01-02")
-	toDate := rangeParams.ToDate.Format("2006-01-02")
-	if input.Case.UnixOnly {
-		fromDate = fmt.Sprintf("%d", rangeParams.FromDate.Unix())
-		toDate = fmt.Sprintf("%d", rangeParams.ToDate.Unix())
-	}
+	rangeParams := getRangeParameters(input.DataPoints)
+	fromDate := rangeParams.FromDate.Unix()
+	toDate := rangeParams.ToDate.Unix()
 
+	nthLocator := types.StreamLocator{
+		DataProvider: *MustEthereumAddressFromBytes(input.Platform.Deployer),
+		StreamId:     *getStreamId(0),
+	}
 	result := Result{
 		Case:          input.Case,
 		Procedure:     input.Procedure,
@@ -77,10 +97,11 @@ func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error
 
 	for i := 0; i < input.Case.Samples; i++ {
 		// args for:
-		// get_record: fromDate, toDate, frozenAt
-		// get_index: fromDate, toDate, frozenAt, baseDate
-		// get_index_change: fromDate, toDate, frozenAt, baseDate, daysInterval
-		args := []any{fromDate, toDate, nil}
+		// get_record: dataProvider, streamId, fromDate, toDate, frozenAt
+		// get_index: dataProvider, streamId, fromDate, toDate, frozenAt, baseDate
+		// get_index_change: dataProvider, streamId, fromDate, toDate, frozenAt, baseDate, daysInterval
+		locator_args := []any{nthLocator.DataProvider.Address(), nthLocator.StreamId.String()}
+		args := append(locator_args, []any{fromDate, toDate, nil}...)
 		switch input.Procedure {
 		case ProcedureGetIndex:
 			args = append(args, nil) // baseDate
@@ -88,7 +109,13 @@ func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error
 			args = append(args, nil) // baseDate
 			args = append(args, 1)   // daysInterval
 		case ProcedureGetFirstRecord:
-			args = []any{nil, nil} // afterDate, frozenAt
+			// we reset as is not the same structure as the other procedures
+			// get_first_record: dataProvider, streamId, afterDate, frozenAt
+			args = append(locator_args, nil, nil) // afterDate, frozenAt
+		case ProcedureGetLastRecord:
+			// we reset as is not the same structure as the other procedures
+			// get_last_record: dataProvider, streamId, beforeDate, frozenAt
+			args = append(locator_args, nil, nil) // beforeDate, frozenAt
 		}
 
 		// FYI: we already tested sleeping for 10 seconds before running to see if
@@ -108,9 +135,15 @@ func runSingleTest(ctx context.Context, input RunSingleTestInput) (Result, error
 
 		start := time.Now()
 		// we read using the reader address to be sure visibility is tested
-		if err := executeStreamProcedure(ctx, input.Platform, nthDbId, string(input.Procedure), args, readerAddress.Bytes()); err != nil {
+		rows, err := executeStreamProcedure(ctx, input.Platform, string(input.Procedure), args, readerAddress.Bytes())
+		if err != nil {
 			collector.Stop()
 			return Result{}, err
+		}
+		if len(rows) == 0 {
+			// if the procedure returns no rows, we consider it as an error
+			collector.Stop()
+			return Result{}, errors.New("procedure returned no rows")
 		}
 		result.CaseDurations[i] = time.Since(start)
 
@@ -135,8 +168,9 @@ type RunBenchmarkInput struct {
 // it returns a result channel to be accumulated by the caller
 func getBenchmarkFn(benchmarkCase BenchmarkCase, resultCh *chan []Result) func(ctx context.Context, platform *kwilTesting.Platform) error {
 	return func(ctx context.Context, platform *kwilTesting.Platform) error {
+
 		log.Println("running benchmark", benchmarkCase)
-		platform.Deployer = deployer.Bytes()
+		platform = procedure.WithSigner(platform, deployer.Bytes())
 
 		tree := trees.NewTree(trees.NewTreeInput{
 			QtyStreams:      benchmarkCase.QtyStreams,
